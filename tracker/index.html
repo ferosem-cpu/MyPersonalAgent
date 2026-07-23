@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portable Work Tracker</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f5f2;
+      --fg: #1e2328;
+      --muted: #667085;
+      --panel: #ffffff;
+      --line: #d9ded8;
+      --accent: #116149;
+      --accent-2: #c15f2f;
+      --danger: #b42318;
+      --input: #ffffff;
+      --shadow: 0 1px 2px rgba(16, 24, 40, .08);
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111413;
+      --fg: #eef1ed;
+      --muted: #a5aca6;
+      --panel: #1a1f1d;
+      --line: #343b37;
+      --accent: #4fb997;
+      --accent-2: #df8a55;
+      --danger: #ff8a7a;
+      --input: #121615;
+      --shadow: none;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: Segoe UI, system-ui, -apple-system, sans-serif;
+      line-height: 1.45;
+    }
+    button, input, textarea, select {
+      font: inherit;
+      color: inherit;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 6px;
+      padding: 8px 11px;
+      cursor: pointer;
+      min-height: 38px;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    button.danger { color: var(--danger); }
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--input);
+      border-radius: 6px;
+      padding: 9px 10px;
+      min-height: 38px;
+    }
+    textarea { min-height: 82px; resize: vertical; }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: color-mix(in srgb, var(--bg) 94%, transparent);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--line);
+    }
+    .shell { max-width: 1180px; margin: 0 auto; padding: 18px; }
+    .topbar {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+    }
+    h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); }
+    .status { color: var(--muted); font-size: 13px; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .quick {
+      display: grid;
+      grid-template-columns: 1fr minmax(130px, 190px) minmax(90px, 120px) auto;
+      gap: 8px;
+      margin-top: 15px;
+    }
+    nav {
+      display: flex;
+      gap: 6px;
+      margin-top: 14px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+    }
+    nav button[aria-selected="true"] {
+      background: var(--fg);
+      color: var(--bg);
+      border-color: var(--fg);
+    }
+    main.shell {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 18px;
+      align-items: start;
+    }
+    section.view { display: none; }
+    section.view.active { display: block; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .panel h2, .panel h3 { margin: 0 0 12px; }
+    .grid { display: grid; gap: 10px; }
+    .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .item {
+      border-top: 1px solid var(--line);
+      padding: 13px 0;
+      display: grid;
+      gap: 8px;
+    }
+    .item:first-child { border-top: 0; padding-top: 0; }
+    .item-head {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: start;
+    }
+    .title { font-weight: 650; }
+    .meta, .empty { color: var(--muted); font-size: 13px; }
+    .tag {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid var(--line);
+      padding: 8px 0;
+    }
+    .overdue { border-left: 4px solid var(--danger); padding-left: 10px; }
+    .due-soon { border-left: 4px solid var(--accent-2); padding-left: 10px; }
+    dialog {
+      width: min(680px, calc(100vw - 28px));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--fg);
+      padding: 0;
+    }
+    dialog::backdrop { background: rgba(0,0,0,.45); }
+    .dialog-inner { padding: 18px; }
+    .rightcol { position: sticky; top: 154px; }
+    @media (max-width: 880px) {
+      .topbar, main.shell, .quick { grid-template-columns: 1fr; }
+      .toolbar { justify-content: start; }
+      .two, .three { grid-template-columns: 1fr; }
+      .rightcol { position: static; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <div class="topbar">
+        <div>
+          <h1>Portable Work Tracker</h1>
+          <div class="status" id="saveStatus">Not saved yet</div>
+        </div>
+        <div class="toolbar">
+          <button id="openWorklog">Open worklog</button>
+          <button id="openDataFolder">Open data folder</button>
+          <button id="saveWorklog">Save</button>
+          <button id="exportJson">Export JSON</button>
+          <button id="importJson">Import JSON</button>
+          <button id="themeToggle">Dark</button>
+        </div>
+      </div>
+      <form class="quick" id="quickForm">
+        <input id="quickTitle" placeholder="Quick add work entry and press Enter" autocomplete="off">
+        <input id="quickProject" placeholder="Project" autocomplete="off">
+        <input id="quickMinutes" type="number" min="0" step="5" placeholder="Minutes">
+        <button class="primary">Log</button>
+      </form>
+      <nav aria-label="Views">
+        <button data-view="today" aria-selected="true">Today</button>
+        <button data-view="history">History</button>
+        <button data-view="todos">To-Dos</button>
+        <button data-view="memory">Memory</button>
+        <button data-view="report">Report</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div>
+      <section class="view active" id="today">
+        <div class="panel">
+          <h2>Add Work</h2>
+          <form class="grid" id="entryForm">
+            <input name="title" placeholder="Title" required>
+            <textarea name="desc" placeholder="Description"></textarea>
+            <div class="three">
+              <input name="project" placeholder="Project">
+              <input name="minutes" type="number" min="0" step="5" placeholder="Minutes">
+              <button class="primary">Add Entry</button>
+            </div>
+          </form>
+        </div>
+        <div class="panel">
+          <h2>Today</h2>
+          <div id="todayList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="history">
+        <div class="panel">
+          <h2>History</h2>
+          <div class="three">
+            <input id="fromDate" type="date">
+            <input id="toDate" type="date">
+            <input id="projectFilter" placeholder="Project filter">
+          </div>
+          <div style="margin-top:10px">
+            <input id="search" placeholder="Search all entries">
+          </div>
+        </div>
+        <div class="panel">
+          <div id="historyList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="todos">
+        <div class="panel">
+          <h2>Add To-Do</h2>
+          <form class="grid" id="todoForm">
+            <input name="title" placeholder="Task" required>
+            <div class="three">
+              <input name="project" placeholder="Project">
+              <input name="due" type="datetime-local" required>
+              <input name="remind_before_min" type="number" min="0" step="5" value="30" placeholder="Remind before">
+            </div>
+            <select name="recurrence">
+              <option value="">No recurrence</option>
+              <option value="daily">Daily</option>
+              <option value="weekly:MO,WE">Weekly Monday and Wednesday</option>
+              <option value="monthly:15">Monthly on the 15th</option>
+            </select>
+            <button class="primary">Add To-Do</button>
+          </form>
+        </div>
+        <div class="panel">
+          <h2>Open To-Dos</h2>
+          <div id="todoList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="memory">
+        <div class="panel">
+          <h2>Remember</h2>
+          <form class="grid" id="memoryForm">
+            <textarea name="text" placeholder="Save a fact, note, number, or reminder context" required></textarea>
+            <input name="tags" placeholder="Tags, comma separated">
+            <button class="primary">Remember</button>
+          </form>
+        </div>
+        <div class="panel">
+          <input id="memorySearch" placeholder="Recall memory">
+          <div id="memoryList" style="margin-top:14px"></div>
+        </div>
+      </section>
+
+      <section class="view" id="report">
+        <div class="panel">
+          <h2>Daily Report</h2>
+          <div class="two">
+            <input id="reportDate" type="date">
+            <button id="copyReport" class="primary">Copy Report</button>
+          </div>
+          <textarea id="reportText" readonly style="margin-top:12px; min-height:320px"></textarea>
+        </div>
+      </section>
+    </div>
+
+    <aside class="rightcol">
+      <div class="panel">
+        <h3>Daily Summary</h3>
+        <div id="summary"></div>
+      </div>
+      <div class="panel">
+        <h3>Storage</h3>
+        <p class="meta">Use "Open worklog" once per browser to connect `data/worklog.json`. Import/export is available when file access is not supported.</p>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="editDialog">
+    <form class="dialog-inner grid" method="dialog" id="editForm">
+      <h2 id="editTitle">Edit</h2>
+      <input type="hidden" name="type">
+      <input type="hidden" name="id">
+      <input name="title" placeholder="Title" required>
+      <textarea name="desc" placeholder="Description"></textarea>
+      <div class="three" id="entryEditFields">
+        <input name="project" placeholder="Project">
+        <input name="minutes" type="number" min="0" step="5" placeholder="Minutes">
+        <input name="ts" type="datetime-local">
+      </div>
+      <div class="three" id="todoEditFields">
+        <input name="todoProject" placeholder="Project">
+        <input name="due" type="datetime-local">
+        <input name="remind_before_min" type="number" min="0" step="5">
+      </div>
+      <div class="actions">
+        <button class="primary" value="save">Save</button>
+        <button value="cancel">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input id="importFile" type="file" accept="application/json" hidden>
+
+  <script>
+    const state = {
+      worklog: { version: 1, entries: [] },
+      todos: { version: 1, todos: [] },
+      memory: { version: 1, notes: [] },
+      handles: {},
+      theme: localStorage.getItem("theme") || "light"
+    };
+    document.documentElement.dataset.theme = state.theme;
+
+    const $ = (id) => document.getElementById(id);
+    const uuid = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const nowIso = () => new Date().toISOString();
+    const dateKey = (iso) => new Date(iso).toLocaleDateString("en-CA");
+    const todayKey = () => dateKey(nowIso());
+    const escapeHtml = (s = "") => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+    const minutesLabel = (m = 0) => `${Math.floor(Number(m || 0) / 60)}h ${Number(m || 0) % 60}m`;
+    const toLocalInput = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    };
+    const fromLocalInput = (value) => value ? new Date(value).toISOString() : null;
+
+    const idb = {
+      open() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open("portable-tracker", 1);
+          req.onupgradeneeded = () => req.result.createObjectStore("handles");
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async get(key) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("handles", "readonly");
+          const req = tx.objectStore("handles").get(key);
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      },
+      async set(key, value) {
+        const db = await this.open();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction("handles", "readwrite");
+          tx.objectStore("handles").put(value, key);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+      }
+    };
+
+    const storage = {
+      backend: "json",
+      async init() {
+        state.handles.worklog = await idb.get("worklog").catch(() => null);
+        state.handles.dataDir = await idb.get("dataDir").catch(() => null);
+        let loadedFromDataDir = false;
+        if (state.handles.dataDir) {
+          await this.loadDataFolder().then(() => { loadedFromDataDir = true; }).catch(() => {});
+        }
+        if (state.handles.worklog) await this.loadWorklogFromHandle().catch(() => {});
+        // Only fall back to the cached localStorage snapshot when the real
+        // data folder isn't connected - otherwise it clobbers freshly loaded
+        // todos/memory (e.g. entries added via Telegram) with stale data.
+        if (!loadedFromDataDir) {
+          this.loadLocalFallbacks();
+          if (state.handles.dataDir) {
+            // A handle exists but permission wasn't silently restorable (Chrome
+            // requires a user gesture to re-grant it) - what's shown below is a
+            // stale/local snapshot, not your real, up-to-date data.
+            setStatus("Data folder needs to be reconnected - click 'Open data folder'");
+          }
+        }
+      },
+      loadLocalFallbacks() {
+        for (const key of ["todos", "memory"]) {
+          const saved = localStorage.getItem(`tracker-${key}`);
+          if (saved) state[key] = JSON.parse(saved);
+        }
+      },
+      persistFallbacks() {
+        localStorage.setItem("tracker-todos", JSON.stringify(state.todos));
+        localStorage.setItem("tracker-memory", JSON.stringify(state.memory));
+      },
+      async pickWorklog() {
+        if (!window.showOpenFilePicker) {
+          alert("File System Access API is not available in this browser. Use Import/Export JSON.");
+          return;
+        }
+        const [handle] = await showOpenFilePicker({
+          types: [{ description: "Worklog JSON", accept: { "application/json": [".json"] } }]
+        });
+        state.handles.worklog = handle;
+        await idb.set("worklog", handle);
+        await this.loadWorklogFromHandle();
+      },
+      async pickDataFolder() {
+        if (!window.showDirectoryPicker) {
+          alert("Folder access is not available in this browser. Use Chrome or Edge, or use Import/Export JSON.");
+          return;
+        }
+        state.handles.dataDir = await showDirectoryPicker({ mode: "readwrite" });
+        await idb.set("dataDir", state.handles.dataDir);
+        await this.loadDataFolder();
+      },
+      async readDataFile(fileName, fallback) {
+        const handle = await state.handles.dataDir.getFileHandle(fileName, { create: true });
+        const file = await handle.getFile();
+        const text = await file.text();
+        if (!text.trim()) {
+          await this.writeDataFile(fileName, fallback);
+          return fallback;
+        }
+        return JSON.parse(text);
+      },
+      async writeDataFile(fileName, data) {
+        const handle = await state.handles.dataDir.getFileHandle(fileName, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(JSON.stringify(data, null, 2));
+        await writable.close();
+      },
+      async loadDataFolder() {
+        if (!await verifyPermission(state.handles.dataDir, true)) return;
+        state.worklog = await this.readDataFile("worklog.json", { version: 1, entries: [] });
+        state.todos = await this.readDataFile("todos.json", { version: 1, todos: [] });
+        state.memory = await this.readDataFile("memory.json", { version: 1, notes: [] });
+        setStatus("Loaded tracker/data folder");
+      },
+      async loadWorklogFromHandle() {
+        const file = await state.handles.worklog.getFile();
+        state.worklog = JSON.parse(await file.text());
+        setStatus(`Loaded ${file.name}`);
+      },
+      async saveAll() {
+        if (state.handles.dataDir && await verifyPermission(state.handles.dataDir, true)) {
+          await this.writeDataFile("worklog.json", state.worklog);
+          await this.writeDataFile("todos.json", state.todos);
+          await this.writeDataFile("memory.json", state.memory);
+        } else if (state.handles.worklog && await verifyPermission(state.handles.worklog, true)) {
+          const writable = await state.handles.worklog.createWritable();
+          await writable.write(JSON.stringify(state.worklog, null, 2));
+          await writable.close();
+          this.persistFallbacks();
+        } else {
+          localStorage.setItem("tracker-worklog", JSON.stringify(state.worklog));
+          this.persistFallbacks();
+        }
+        setStatus(`Last saved ${new Date().toLocaleString()}`);
+      }
+    };
+
+    async function verifyPermission(handle, write) {
+      const opts = { mode: write ? "readwrite" : "read" };
+      if ((await handle.queryPermission(opts)) === "granted") return true;
+      return (await handle.requestPermission(opts)) === "granted";
+    }
+    function setStatus(text) { $("saveStatus").textContent = text; }
+
+    function addEntry({ title, desc = "", project = "", minutes = 0, ts = nowIso() }) {
+      state.worklog.entries.push({ id: uuid(), ts, title, desc, project, minutes: Number(minutes || 0) });
+      storage.saveAll();
+      render();
+    }
+    function completeTodo(id) {
+      const todo = state.todos.todos.find(t => t.id === id);
+      if (!todo) return;
+      todo.status = "done";
+      todo.completed = nowIso();
+      addEntry({ title: `Completed: ${todo.title}`, desc: "Auto-logged from to-do completion.", project: todo.project || "", minutes: 0 });
+    }
+    function snoozeTodo(id, minutes = 60) {
+      const todo = state.todos.todos.find(t => t.id === id);
+      if (!todo) return;
+      todo.status = "snoozed";
+      todo.snooze_until = new Date(Date.now() + minutes * 60000).toISOString();
+      storage.saveAll();
+      render();
+    }
+    function deleteBy(type, id) {
+      if (!confirm("Delete this item?")) return;
+      if (type === "entry") state.worklog.entries = state.worklog.entries.filter(e => e.id !== id);
+      if (type === "todo") state.todos.todos = state.todos.todos.filter(t => t.id !== id);
+      if (type === "memory") state.memory.notes = state.memory.notes.filter(n => n.id !== id);
+      storage.saveAll();
+      render();
+    }
+    function renderItems(target, items, type) {
+      target.innerHTML = items.length ? items.map(item => {
+        const isTodo = type === "todo";
+        const isMemory = type === "memory";
+        const due = isTodo ? new Date(item.snooze_until || item.due) : null;
+        const cls = isTodo && item.status !== "done" && due < new Date() ? "item overdue" : (isTodo && due - Date.now() < 3600000 ? "item due-soon" : "item");
+        return `<div class="${cls}">
+          <div class="item-head">
+            <div>
+              <div class="title">${escapeHtml(item.title || item.text)}</div>
+              <div class="meta">${escapeHtml(isTodo ? `${item.status} · due ${new Date(item.due).toLocaleString()}` : isMemory ? `${new Date(item.created).toLocaleString()} · ${(item.tags || []).join(", ")}` : `${new Date(item.ts).toLocaleString()} · ${minutesLabel(item.minutes)}`)}</div>
+            </div>
+            ${item.project ? `<span class="tag">${escapeHtml(item.project)}</span>` : ""}
+          </div>
+          ${item.desc ? `<div>${escapeHtml(item.desc)}</div>` : ""}
+          ${isMemory ? `<div>${escapeHtml(item.text)}</div>` : ""}
+          <div class="actions">
+            ${type !== "memory" ? `<button onclick="openEdit('${type}','${item.id}')">Edit</button>` : ""}
+            ${isTodo && item.status !== "done" ? `<button onclick="completeTodo('${item.id}')">Done</button><button onclick="snoozeTodo('${item.id}', 60)">Snooze 1h</button>` : ""}
+            <button class="danger" onclick="deleteBy('${type}','${item.id}')">Delete</button>
+          </div>
+        </div>`;
+      }).join("") : `<div class="empty">Nothing here yet.</div>`;
+    }
+    function render() {
+      const today = todayKey();
+      const entries = [...state.worklog.entries].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+      renderItems($("todayList"), entries.filter(e => dateKey(e.ts) === today).reverse(), "entry");
+
+      const from = $("fromDate").value;
+      const to = $("toDate").value;
+      const project = $("projectFilter").value.toLowerCase();
+      const q = $("search").value.toLowerCase();
+      renderItems($("historyList"), entries.filter(e => {
+        const dk = dateKey(e.ts);
+        return (!from || dk >= from) && (!to || dk <= to) &&
+          (!project || (e.project || "").toLowerCase().includes(project)) &&
+          (!q || `${e.title} ${e.desc} ${e.project}`.toLowerCase().includes(q));
+      }), "entry");
+
+      const todos = [...state.todos.todos].sort((a, b) => new Date(a.snooze_until || a.due) - new Date(b.snooze_until || b.due));
+      renderItems($("todoList"), todos.filter(t => t.status !== "done"), "todo");
+
+      const mq = $("memorySearch").value.toLowerCase();
+      renderItems($("memoryList"), state.memory.notes.filter(n => !mq || `${n.text} ${(n.tags || []).join(" ")}`.toLowerCase().includes(mq)), "memory");
+      renderSummary();
+      renderReport();
+    }
+    function renderSummary() {
+      const todays = state.worklog.entries.filter(e => dateKey(e.ts) === todayKey());
+      const byProject = todays.reduce((acc, e) => {
+        const key = e.project || "Unassigned";
+        acc[key] = (acc[key] || 0) + Number(e.minutes || 0);
+        return acc;
+      }, {});
+      $("summary").innerHTML = `<div class="summary-row"><span>Entries</span><strong>${todays.length}</strong></div>
+        <div class="summary-row"><span>Total time</span><strong>${minutesLabel(todays.reduce((s, e) => s + Number(e.minutes || 0), 0))}</strong></div>
+        ${Object.entries(byProject).map(([p, m]) => `<div class="summary-row"><span>${escapeHtml(p)}</span><strong>${minutesLabel(m)}</strong></div>`).join("")}`;
+    }
+    function makeReport(day = todayKey()) {
+      const entries = state.worklog.entries.filter(e => dateKey(e.ts) === day).sort((a, b) => new Date(a.ts) - new Date(b.ts));
+      const total = entries.reduce((s, e) => s + Number(e.minutes || 0), 0);
+      return [`Daily work report - ${day}`, `Total: ${entries.length} entries, ${minutesLabel(total)}`, "", ...entries.map(e => `- ${new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} [${e.project || "Unassigned"}] ${e.title}${e.minutes ? ` (${minutesLabel(e.minutes)})` : ""}${e.desc ? `\n  ${e.desc}` : ""}`)].join("\n");
+    }
+    function renderReport() {
+      if (!$("reportDate").value) $("reportDate").value = todayKey();
+      $("reportText").value = makeReport($("reportDate").value);
+    }
+    window.openEdit = (type, id) => {
+      const item = type === "entry" ? state.worklog.entries.find(e => e.id === id) : state.todos.todos.find(t => t.id === id);
+      if (!item) return;
+      const form = $("editForm");
+      form.type.value = type;
+      form.id.value = id;
+      form.title.value = item.title;
+      form.desc.value = item.desc || "";
+      $("entryEditFields").style.display = type === "entry" ? "grid" : "none";
+      $("todoEditFields").style.display = type === "todo" ? "grid" : "none";
+      if (type === "entry") {
+        form.project.value = item.project || "";
+        form.minutes.value = item.minutes || 0;
+        form.ts.value = toLocalInput(item.ts);
+      } else {
+        form.todoProject.value = item.project || "";
+        form.due.value = toLocalInput(item.due);
+        form.remind_before_min.value = item.remind_before_min || 30;
+      }
+      $("editDialog").showModal();
+    };
+    window.completeTodo = completeTodo;
+    window.snoozeTodo = snoozeTodo;
+    window.deleteBy = deleteBy;
+
+    document.querySelectorAll("nav button").forEach(btn => btn.addEventListener("click", () => {
+      document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", String(b === btn)));
+      document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === btn.dataset.view));
+      render();
+    }));
+    $("quickForm").addEventListener("submit", e => {
+      e.preventDefault();
+      if (!$("quickTitle").value.trim()) return;
+      addEntry({ title: $("quickTitle").value.trim(), project: $("quickProject").value.trim(), minutes: $("quickMinutes").value });
+      e.target.reset();
+    });
+    $("entryForm").addEventListener("submit", e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      addEntry(Object.fromEntries(fd.entries()));
+      e.target.reset();
+    });
+    $("todoForm").addEventListener("submit", e => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      state.todos.todos.push({ id: uuid(), title: fd.title, project: fd.project, due: fromLocalInput(fd.due), recurrence: fd.recurrence || null, remind_before_min: Number(fd.remind_before_min || 30), status: "open", snooze_until: null, created: nowIso(), completed: null });
+      storage.saveAll();
+      e.target.reset();
+      render();
+    });
+    $("memoryForm").addEventListener("submit", e => {
+      e.preventDefault();
+      const fd = Object.fromEntries(new FormData(e.target).entries());
+      state.memory.notes.push({ id: uuid(), text: fd.text, tags: fd.tags.split(",").map(t => t.trim()).filter(Boolean), created: nowIso() });
+      storage.saveAll();
+      e.target.reset();
+      render();
+    });
+    $("editForm").addEventListener("submit", e => {
+      const submitter = e.submitter && e.submitter.value;
+      if (submitter !== "save") return;
+      e.preventDefault();
+      const f = e.target;
+      const item = f.type.value === "entry" ? state.worklog.entries.find(x => x.id === f.id.value) : state.todos.todos.find(x => x.id === f.id.value);
+      item.title = f.title.value;
+      item.desc = f.desc.value;
+      if (f.type.value === "entry") {
+        item.project = f.project.value;
+        item.minutes = Number(f.minutes.value || 0);
+        item.ts = fromLocalInput(f.ts.value) || item.ts;
+      } else {
+        item.project = f.todoProject.value;
+        item.due = fromLocalInput(f.due.value) || item.due;
+        item.remind_before_min = Number(f.remind_before_min.value || 30);
+      }
+      $("editDialog").close();
+      storage.saveAll();
+      render();
+    });
+    ["fromDate", "toDate", "projectFilter", "search", "memorySearch", "reportDate"].forEach(id => $(id).addEventListener("input", render));
+    $("openWorklog").onclick = () => storage.pickWorklog().then(render);
+    $("openDataFolder").onclick = () => storage.pickDataFolder().then(render);
+    $("saveWorklog").onclick = () => storage.saveAll();
+    $("themeToggle").onclick = () => {
+      state.theme = state.theme === "dark" ? "light" : "dark";
+      localStorage.setItem("theme", state.theme);
+      document.documentElement.dataset.theme = state.theme;
+      $("themeToggle").textContent = state.theme === "dark" ? "Light" : "Dark";
+    };
+    $("exportJson").onclick = () => {
+      const blob = new Blob([JSON.stringify({ worklog: state.worklog, todos: state.todos, memory: state.memory }, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `portable-tracker-export-${todayKey()}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    $("importJson").onclick = () => $("importFile").click();
+    $("importFile").onchange = async e => {
+      const imported = JSON.parse(await e.target.files[0].text());
+      if (imported.worklog) state.worklog = imported.worklog;
+      if (imported.todos) state.todos = imported.todos;
+      if (imported.memory) state.memory = imported.memory;
+      if (imported.entries) state.worklog = imported;
+      await storage.saveAll();
+      render();
+    };
+    $("copyReport").onclick = async () => navigator.clipboard.writeText($("reportText").value);
+    storage.init().then(() => {
+      const fallback = localStorage.getItem("tracker-worklog");
+      if (fallback && !state.worklog.entries.length) state.worklog = JSON.parse(fallback);
+      $("themeToggle").textContent = state.theme === "dark" ? "Light" : "Dark";
+      render();
+    });
+  </script>
+</body>
+</html>

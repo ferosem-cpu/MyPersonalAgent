@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portable Personal Agent + Work Tracker Build Specification</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f7f7f5; --fg: #222; --muted: #666; --panel: #fff; --border: #d8d8d2; --code: #f0f0ec; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #151515; --fg: #e8e8e2; --muted: #aaa; --panel: #1f1f1f; --border: #3a3a36; --code: #292927; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: Segoe UI, Arial, sans-serif; line-height: 1.58; }
+    main { max-width: 980px; margin: 0 auto; padding: 40px 24px 72px; }
+    header { margin-bottom: 28px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+    h1 { font-size: clamp(28px, 4vw, 42px); line-height: 1.15; margin: 0 0 10px; }
+    h2 { margin-top: 34px; padding-top: 8px; border-top: 1px solid var(--border); }
+    h3 { margin-top: 24px; }
+    p, li { font-size: 16px; }
+    .source { color: var(--muted); font-size: 14px; }
+    code { background: var(--code); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-family: Consolas, monospace; }
+    pre { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: auto; padding: 16px; }
+    pre code { background: transparent; border: 0; padding: 0; white-space: pre; }
+    blockquote { margin: 16px 0; padding: 12px 16px; border-left: 4px solid var(--border); background: var(--panel); }
+    hr { border: 0; border-top: 1px solid var(--border); margin: 24px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Portable Personal Agent + Work Tracker Build Specification</h1>
+      <div class="source">Converted from Markdown on 2026-07-18 08:59:04</div>
+    </header>
+<h1>Portable Personal Agent + Work Tracker — Build Specification</h1>
+
+<p><strong>Purpose:</strong> Hand this document to any AI coding agent (Claude, Codex, Grok, Antigravity, etc.) to build the complete system. Everything needed is specified below. Build Part 2 first (simpler), then Part 1.</p>
+
+<hr>
+
+<h2>Overall Architecture</h2>
+
+<pre><code>
+GoogleDrive/
+└── MyWorkspace/                  ← single parent folder, synced by Google Drive desktop app
+    ├── agent/                    ← Part 1: portable local agent
+    │   ├── agent.exe (or agent/ with venv)
+    │   ├── .env.example
+    │   ├── config.json
+    │   └── logs/
+    └── tracker/                  ← Part 2: portable work tracker
+        ├── index.html            ← single-file app (HTML+CSS+JS inline)
+        └── data/
+            └── worklog.json
+</code></pre>
+
+<p><strong>Portability principle:</strong> Everything lives in one folder. No installs on the host machine beyond the Google Drive desktop app. All paths relative. Google Drive sync = both backup and portability.</p>
+
+<hr>
+
+<h2>PART 2 (build first): Portable Work Tracker Page</h2>
+
+<h3>What it is</h3>
+<p>A single-file HTML application that tracks daily work. Opens in any browser via <code>file://</code>. Stores data in a JSON file beside it. No server, no build step, no dependencies.</p>
+
+<h3>Requirements</h3>
+<p>1. <strong>Single file:</strong> All HTML, CSS, and JavaScript in one <code>index.html</code>. No external CDNs required for core function (offline-capable).</p>
+<p>2. <strong>Data storage:</strong></p>
+<ul>
+<li>Primary: File System Access API (<code>showSaveFilePicker</code> / <code>showOpenFilePicker</code>) to read/write <code>data/worklog.json</code>. Remember the file handle in IndexedDB so the user picks the file only once per machine.</li>
+<li>Fallback (browsers without File System Access API): export/import JSON buttons.</li>
+<li>Do NOT use localStorage as primary storage (not portable across machines).</li>
+</ul>
+<p>3. <strong>Features:</strong></p>
+<ul>
+<li>Add a work entry: title, description, project tag, timestamp (auto), optional duration.</li>
+<li>Today view: chronological list of today&#39;s entries.</li>
+<li>History view: filter by date range and project tag.</li>
+<li>Edit and delete entries.</li>
+<li>Daily summary: total entries, total hours, per-project breakdown.</li>
+<li>Quick-add bar at top: type and press Enter to log instantly.</li>
+<li>Search across all entries.</li>
+<li>Export: full JSON download and a formatted plain-text daily report (for pasting into emails/status updates).</li>
+</ul>
+<p>4. <strong>Data format</strong> (<code>worklog.json</code>):</p>
+<pre><code>
+{
+  &quot;version&quot;: 1,
+  &quot;entries&quot;: [
+    {
+      &quot;id&quot;: &quot;uuid&quot;,
+      &quot;ts&quot;: &quot;2026-07-18T10:30:00+05:30&quot;,
+      &quot;title&quot;: &quot;string&quot;,
+      &quot;desc&quot;: &quot;string&quot;,
+      &quot;project&quot;: &quot;string&quot;,
+      &quot;minutes&quot;: 45
+    }
+  ]
+}
+</code></pre>
+<p>5. <strong>UI:</strong> Clean, professional, dark/light toggle, fully responsive (usable on a phone browser too). No frameworks required — vanilla JS is fine.</p>
+<p>6. <strong>Backup:</strong> None to code. The folder sits inside Google Drive; the Drive desktop app syncs <code>worklog.json</code> automatically. Add a small &quot;last saved&quot; indicator in the UI.</p>
+
+<h3>Acceptance tests</h3>
+<ul>
+<li>Open <code>index.html</code> from a USB stick or Drive folder on a fresh machine → works.</li>
+<li>Add 3 entries, close browser, reopen → entries persist via the JSON file.</li>
+<li>Copy folder to another machine → same data appears.</li>
+</ul>
+
+<hr>
+
+<h2>PART 1: Portable Local Agent</h2>
+
+<h3>What it is</h3>
+<p>A local AI agent that runs on the user&#39;s laptop, accepts natural-language commands (typed; voice optional v2), and executes them: file operations, launching apps, running shell commands, web lookups, and writing entries into the tracker&#39;s <code>worklog.json</code>.</p>
+
+<h3>Stack</h3>
+<ul>
+<li><strong>Language:</strong> Python 3.11+</li>
+<li><strong>LLM:</strong> Anthropic API (model: <code>claude-sonnet-4-6</code>) with tool use. Design the LLM client as a swappable module so other providers can be substituted.</li>
+<li><strong>Packaging:</strong> PyInstaller single-folder build (<code>--onedir</code>) so it runs with zero installs. Also keep the plain-Python source runnable via a bundled venv for development.</li>
+<li><strong>Interface:</strong> CLI REPL first (v1). Optional local web UI (FastAPI + simple page) as v2. Voice (whisper/speech-to-text) as v3.</li>
+</ul>
+
+<h3>Tools the agent must implement (function-calling tools exposed to the LLM)</h3>
+<p>1. <code>run_shell(command)</code> — execute a shell command, return stdout/stderr. <strong>Must ask user confirmation before any destructive command</strong> (delete, format, move system files, registry edits).</p>
+<p>2. <code>read_file(path)</code> / <code>write_file(path, content)</code> — restricted by default to a configurable allowlist of directories (default: the workspace folder + user&#39;s Documents/Downloads).</p>
+<p>3. <code>open_app(name_or_path)</code> — launch an application (use <code>os.startfile</code> on Windows, <code>open</code> on macOS, <code>xdg-open</code> on Linux).</p>
+<p>4. <code>web_search(query)</code> — optional; via any free search API or the LLM provider&#39;s built-in search tool.</p>
+<p>5. <code>log_work(title, desc, project, minutes)</code> — append an entry to the tracker&#39;s <code>worklog.json</code> (path from config). This connects the two systems.</p>
+<p>6. <code>list_dir(path)</code> — directory listing.</p>
+
+<h3>Behavior requirements</h3>
+<ul>
+<li>Conversation loop with context retained per session; <code>/reset</code> clears it.</li>
+<li>Confirmation gate: any tool call flagged destructive → print the exact action and require explicit <code>y</code> from the user.</li>
+<li>All actions logged to <code>logs/agent-YYYY-MM-DD.log</code> (timestamp, tool, args, result summary).</li>
+<li>Graceful error handling: tool failures are reported back to the LLM to retry or explain, never crash the loop.</li>
+</ul>
+
+<h3>Configuration</h3>
+<ul>
+<li><code>.env</code> file (gitignored) for <code>ANTHROPIC_API_KEY</code>. On first run, if missing, prompt the user and write it.</li>
+<li><code>config.json</code>:</li>
+</ul>
+<pre><code>
+{
+  &quot;workspace_root&quot;: &quot;..&quot;,
+  &quot;tracker_json&quot;: &quot;../tracker/data/worklog.json&quot;,
+  &quot;allowed_dirs&quot;: [&quot;..&quot;, &quot;~/Documents&quot;, &quot;~/Downloads&quot;],
+  &quot;model&quot;: &quot;claude-sonnet-4-6&quot;,
+  &quot;confirm_destructive&quot;: true
+}
+</code></pre>
+<ul>
+<li>All paths resolved relative to the agent folder → portable.</li>
+</ul>
+
+<h3>Portability constraints</h3>
+<ul>
+<li>No absolute paths anywhere.</li>
+<li>OS detection at runtime; abstract OS-specific calls behind a <code>platform_ops.py</code> module (Windows first-class; macOS/Linux best-effort).</li>
+<li>Distribution: the built <code>agent/</code> folder is copied into the Drive-synced workspace. Note in README: the PyInstaller build is per-OS (a Windows build won&#39;t run on macOS — build once per OS if needed).</li>
+</ul>
+
+<h3>Acceptance tests</h3>
+<ul>
+<li>Fresh Windows machine with only Google Drive installed: open workspace folder → run <code>agent.exe</code> → enter API key → say &quot;create a file called notes.txt on my desktop saying hello&quot; → file appears.</li>
+<li>Say &quot;log that I spent 30 minutes on the ZAN-F website&quot; → entry appears in the tracker page on next open.</li>
+<li>Say &quot;delete everything in Downloads&quot; → agent shows the command and asks for confirmation first.</li>
+</ul>
+
+<hr>
+
+<h2>Build Order &amp; Deliverables</h2>
+<p>1. <code>tracker/index.html</code> — complete single-file app (Part 2).</p>
+<p>2. <code>agent/</code> Python source with all six tools, CLI REPL, config, logging (Part 1).</p>
+<p>3. PyInstaller build script (<code>build.bat</code> / <code>build.sh</code>).</p>
+<p>4. <code>README.md</code> — setup on a new machine in under 5 minutes, folder layout, how sync/backup works.</p>
+
+<hr>
+
+<h2>READY-TO-PASTE BUILD PROMPT</h2>
+
+<blockquote>Build a two-part portable productivity system per the attached specification.</blockquote>
+<blockquote></blockquote>
+<blockquote><strong>Part A — Work Tracker:</strong> A single-file <code>index.html</code> (vanilla HTML/CSS/JS, no CDNs, no frameworks) that logs work entries (title, description, project, auto timestamp, optional minutes) to a <code>data/worklog.json</code> file beside it using the File System Access API with the file handle persisted in IndexedDB, with JSON export/import fallback. Include a quick-add bar, today view, filterable history, search, edit/delete, per-project daily summaries, plain-text daily report export, dark/light mode, and a &quot;last saved&quot; indicator. It must work fully offline from a <code>file://</code> URL and remain functional when the folder is copied to another machine.</blockquote>
+<blockquote></blockquote>
+<blockquote><strong>Part B — Local Agent:</strong> A Python 3.11 CLI agent using the Anthropic API (<code>claude-sonnet-4-6</code>) with tool use. Implement tools: run_shell (with mandatory y/n confirmation for destructive commands), read_file/write_file (restricted to allowlisted dirs from config.json), open_app (cross-platform via a platform_ops module), list_dir, and log_work which appends entries to the tracker&#39;s worklog.json (path from config). Load ANTHROPIC_API_KEY from .env, prompting and saving it on first run. Log all actions to daily log files. All paths relative to the agent folder. Provide a PyInstaller --onedir build script and a README covering setup on a fresh machine.</blockquote>
+<blockquote></blockquote>
+<blockquote>Both parts live inside one parent folder intended to sit in a Google Drive synced directory, which provides backup and portability. Build Part A first, then Part B. Deliver complete, runnable code with no placeholders.</blockquote>
+<blockquote></blockquote>
+<blockquote><strong>Part C — Memory &amp; Reminders Layer (build after A and B):</strong> Implement everything in the &quot;PART 3&quot; section of the attached spec: to-do module with due dates and recurring tasks, a background reminder scheduler owned by the agent (system tray process), Telegram bot integration for reminders/morning brief/end-of-day capture/reply-to-complete, escalating re-reminders for overdue items, and a &quot;remember/recall&quot; free-form memory vault. Reminders must fire from the agent process, not the HTML page.</blockquote>
+<blockquote></blockquote>
+<blockquote><strong>Part D — Storage abstraction (design constraint from day one):</strong> Route ALL data access through a single storage module in both the tracker (storage.js) and the agent (storage.py), selectable via config: <code>&quot;storage&quot;: &quot;json&quot;</code> (default, local files) or <code>&quot;storage&quot;: &quot;firestore&quot;</code> (Google Cloud Firestore using the user&#39;s existing Firebase project, with the Firebase JS SDK in the page and the Python Firestore client in the agent, offline persistence enabled). Collections mirror the JSON schemas exactly. Include an idempotent <code>migrate_json_to_firestore.py</code> script. Switching backends must require zero code changes outside config.</blockquote>
+
+<hr>
+
+<h2>PART 3: Memory &amp; Reminders Layer (v2 — the core purpose)</h2>
+
+<p><strong>Design driver:</strong> The user&#39;s primary problem is forgetting things. The system must be *proactive* — it pushes information to the user rather than waiting to be checked. One-shot reminders are considered a failure mode; unacknowledged items must escalate.</p>
+
+<h3>3.1 To-Do Module (extends the tracker)</h3>
+<ul>
+<li>New file <code>data/todos.json</code>:</li>
+</ul>
+<pre><code>
+{
+  &quot;version&quot;: 1,
+  &quot;todos&quot;: [
+    {
+      &quot;id&quot;: &quot;uuid&quot;,
+      &quot;title&quot;: &quot;string&quot;,
+      &quot;project&quot;: &quot;string&quot;,
+      &quot;due&quot;: &quot;2026-07-20T15:00:00+05:30&quot;,
+      &quot;recurrence&quot;: null,
+      &quot;remind_before_min&quot;: 30,
+      &quot;status&quot;: &quot;open | done | snoozed&quot;,
+      &quot;snooze_until&quot;: null,
+      &quot;created&quot;: &quot;iso&quot;,
+      &quot;completed&quot;: null
+    }
+  ]
+}
+</code></pre>
+<ul>
+<li><code>recurrence</code> supports: <code>daily</code>, <code>weekly:MO,WE</code>, <code>monthly:15</code>.</li>
+<li>Tracker <code>index.html</code> gains a To-Do tab: add/edit/complete/snooze, overdue items highlighted at top, completed items auto-logged as work entries.</li>
+<li>Agent gains tools: <code>add_todo</code>, <code>complete_todo</code>, <code>list_todos</code>, <code>snooze_todo</code>.</li>
+</ul>
+
+<h3>3.2 Reminder Scheduler (owned by the agent, NOT the page)</h3>
+<ul>
+<li>Rationale: a <code>file://</code> page can only notify while open in a browser. Reminders must come from an always-running process.</li>
+<li>The agent runs a background scheduler thread (or a separate <code>scheduler.py</code> launched at OS startup / as a tray app via <code>pystray</code>).</li>
+<li>Every 60s it scans <code>todos.json</code> and fires reminders via: (a) native desktop notification (<code>plyer</code> or <code>win10toast</code>), and (b) Telegram.</li>
+<li><strong>Escalating re-reminders:</strong> if a reminder is not acknowledged (marked done/snoozed), re-send at +15 min, +1 h, +3 h, then daily — until resolved. This is mandatory behavior, not optional.</li>
+</ul>
+
+<h3>3.3 Telegram Integration</h3>
+<ul>
+<li>Free Telegram Bot (token via @BotFather) + user&#39;s chat_id, both stored in <code>.env</code>; a <code>/start</code> handshake captures chat_id automatically on first run.</li>
+<li>Outbound: reminders, overdue escalations, morning brief, end-of-day prompt.</li>
+<li>Inbound (long-polling, no public server needed): </li>
+<li>&quot;done &lt;task words&gt;&quot; → fuzzy-match and complete the todo</li>
+<li>&quot;snooze 2h&quot; / &quot;remind me tomorrow 10am&quot; → snooze</li>
+<li>&quot;todo &lt;text&gt; tomorrow 5pm&quot; → create a todo</li>
+<li>&quot;log &lt;text&gt;&quot; → add a work entry</li>
+<li>any other message → routed to the LLM agent, reply sent back to Telegram (remote control of the agent from the phone)</li>
+<li><strong>Morning brief (08:30, configurable):</strong> today&#39;s todos, overdue items, yesterday&#39;s work summary.</li>
+<li><strong>End-of-day capture (18:00, configurable):</strong> &quot;What did you get done today?&quot; — the reply is parsed by the LLM into work entries.</li>
+</ul>
+
+<h3>3.4 Memory Vault (&quot;remember / recall&quot;)</h3>
+<ul>
+<li><code>data/memory.json</code>: free-form notes with timestamp and tags.</li>
+<li>Agent tools: <code>remember(text, tags)</code> and <code>recall(query)</code> — recall does keyword + LLM semantic search over stored notes.</li>
+<li>Usable from CLI or Telegram: &quot;remember the electrician&#39;s number is …&quot; → later: &quot;what was the electrician&#39;s number?&quot;</li>
+</ul>
+
+<h3>3.5 Known limitation &amp; future phase</h3>
+<ul>
+<li>Everything fires only while the laptop is on. Phase 3 option: move the scheduler + Telegram bot to a small cloud cron reading shared storage, so reminders work even with the laptop off. Design the scheduler as a separate module now so it can be lifted to the cloud later without rework.</li>
+<li><strong>Preferred cloud target:</strong> Google Cloud free tier e2-micro VM (always-free, us-west1/us-central1/us-east1), created inside the user&#39;s existing Google Cloud / Firebase project.</li>
+</ul>
+
+<hr>
+
+<h2>PART 4: Storage Abstraction — Local JSON now, Firestore later (REQUIRED design constraint)</h2>
+
+<p><strong>All reads/writes of worklog, todos, and memory data MUST go through a single storage module</strong> (<code>storage.py</code> for the agent; a <code>storage.js</code> object in the tracker page). No other code touches files or databases directly.</p>
+
+<ul>
+<li><strong>v1 backend (default):</strong> local JSON files as specified above (portable, offline, Drive-synced).</li>
+<li><strong>v2 backend (config switch):</strong> Google Cloud Firestore, using the user&#39;s existing Firebase project.</li>
+<li>Collections mirror the JSON structure: <code>entries</code>, <code>todos</code>, <code>memory</code> (same field names as the JSON schemas).</li>
+<li>Tracker page: Firebase JS SDK loaded in the single HTML file; anonymous or email auth; offline persistence enabled so it still works without a connection.</li>
+<li>Agent/scheduler: <code>google-cloud-firestore</code> Python client with a service-account key path in <code>.env</code>.</li>
+<li>Backend selection via one config value: <code>&quot;storage&quot;: &quot;json&quot; | &quot;firestore&quot;</code>. Switching backends must require zero changes outside config.</li>
+<li>Provide a one-shot migration script <code>migrate_json_to_firestore.py</code> that uploads existing JSON data to Firestore, idempotently (safe to re-run).</li>
+<li>Rationale: with Firestore as the source of truth, the tracker page, laptop agent, cloud scheduler (free e2-micro VM), and a future Android app all share the same live data, and Google Drive backup becomes optional.</li>
+</ul>
+
+<h3>Acceptance tests (Part 4)</h3>
+<ul>
+<li>With <code>&quot;storage&quot;: &quot;json&quot;</code> everything behaves exactly as Parts 1–3 specify.</li>
+<li>Flip config to <code>&quot;storage&quot;: &quot;firestore&quot;</code>, run the migration script → tracker page and agent show the same data; adding a todo on the page appears to the agent (and vice versa) without file sync.</li>
+</ul>
+
+<h3>Acceptance tests (Part C)</h3>
+<ul>
+<li>Create a todo due in 2 minutes → desktop popup AND Telegram message arrive.</li>
+<li>Ignore the reminder → second reminder arrives ~15 min later.</li>
+<li>Reply &quot;done&quot; on Telegram → todo marked complete, confirmation received, work entry logged.</li>
+<li>At configured time, morning brief arrives on Telegram listing open and overdue todos.</li>
+<li>Tell agent &quot;remember X&quot; then later &quot;recall X&quot; from Telegram → correct answer returned.</li>
+</ul>
+
+  </main>
+</body>
+</html>

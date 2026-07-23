@@ -1,0 +1,64 @@
+{
+  "workspace_root": "..",
+  "tracker_json": "../tracker/data/worklog.json",
+  "todos_json": "../tracker/data/todos.json",
+  "memory_json": "../tracker/data/memory.json",
+  "allowed_dirs": [
+    "..",
+    "~/Documents",
+    "~/Downloads",
+    "~/Desktop"
+  ],
+  "model": "claude-opus-4-8",
+  "confirm_destructive": true,
+  "storage": "json",
+  "llm_mode": "auto",
+  "llm_providers": [
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-sonnet-5",
+      "key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "provider": "openai",
+      "model": "gpt-4o",
+      "key_env": "OPENAI_API_KEY"
+    },
+    {
+      "provider": "google",
+      "model": "gemini-3.5-flash",
+      "key_env": "GOOGLE_API_KEY"
+    },
+    {
+      "provider": "grok",
+      "model": "grok-4.3",
+      "key_env": "GROK_API_KEY"
+    },
+    {
+      "provider": "nvidia",
+      "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "key_env": "NVIDIA_API_KEY"
+    }
+  ],
+  "fallback_enabled": true,
+  "fallback_on_error": true,
+  "scheduler": {
+    "enabled": true,
+    "scan_seconds": 60,
+    "morning_brief": "08:30",
+    "end_of_day": "18:00"
+  },
+  "google_drive": {
+    "enabled": true,
+    "root_folder_name": "MyPersonalAgent",
+    "sync_data_files": true,
+    "sync_uploads": true,
+    "credentials_file": "drive_credentials.json",
+    "token_file": "drive_token.json"
+  }
+}

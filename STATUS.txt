@@ -1,0 +1,32 @@
+MyPersonalAgent - Current Status
+================================
+
+LAST UPDATE: 2026-07-18
+
+FIXED: API Keys Tab Bug
+- The tab switching was broken due to incorrect event handling in JavaScript
+- Fixed: switchTab() function now properly receives button element reference
+- File: agent/web_ui.py (lines 386-388 and 571-589)
+
+ACTION REQUIRED:
+1. Close run_web.bat
+2. Re-run run_web.bat
+3. Go to http://localhost:5000
+4. Press Ctrl+Shift+R (hard refresh)
+5. Click "API Keys" tab to test
+
+EXPECTED RESULT:
+- API Keys tab should display 6 input fields for:
+  * OpenRouter
+  * Anthropic
+  * OpenAI
+  * Google
+  * Grok
+  * NVIDIA
+
+If it still doesn't work:
+- Check browser console (F12) for JavaScript errors
+- Verify Flask server started without errors
+- Try clearing browser cache completely
+
+See handover.md or FIX_API_KEYS_TAB.md for more details.
