@@ -166,8 +166,20 @@ class LocalTools:
         return items
 
     def open_app(self, name_or_path: str) -> str:
-        log_action("open_app", {"name_or_path": name_or_path}, "opening")
-        return platform_open_app(name_or_path)
+        # Config-driven alias map (PLAN_V2 Task 6.2) - lets "open whatsapp" resolve to
+        # a real path/URL for apps os.startfile() can't find by name alone (e.g. UWP
+        # apps, or anything not on PATH). Falls through to the raw name unchanged
+        # when there's no alias, so existing behavior for known app names is unaffected.
+        aliases = self.config.get("app_aliases", {})
+        target = aliases.get(name_or_path.lower(), name_or_path)
+        log_action("open_app", {"name_or_path": name_or_path, "resolved": target}, "opening")
+        return platform_open_app(target)
+
+    def open_url(self, url: str) -> str:
+        from platform_ops import open_url as platform_open_url
+
+        log_action("open_url", {"url": url}, "opening")
+        return platform_open_url(url)
 
     def web_search(self, query: str) -> str:
         return f"Web search is not configured locally. Query was: {query}"
@@ -488,6 +500,7 @@ def main() -> None:
         "read_file": tools.read_file,
         "write_file": tools.write_file,
         "open_app": tools.open_app,
+        "open_url": tools.open_url,
         "list_dir": tools.list_dir,
         "log_work": tools.log_work,
         "add_todo": tools.add_todo,

@@ -71,5 +71,6 @@
   "llm_provider": "google",
   "llm_model": "gemini-3.5-flash",
   "email_accounts": {},
-  "email_blocklist": []
+  "email_blocklist": [],
+  "app_aliases": {}
 }

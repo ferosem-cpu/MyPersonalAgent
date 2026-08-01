@@ -61,6 +61,7 @@ def _get_llm() -> MultiProviderLLMClient:
         "read_file": tools.read_file,
         "write_file": tools.write_file,
         "open_app": tools.open_app,
+        "open_url": tools.open_url,
         "list_dir": tools.list_dir,
         "log_work": tools.log_work,
         "add_todo": tools.add_todo,

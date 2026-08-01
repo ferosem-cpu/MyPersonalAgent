@@ -50,8 +50,13 @@ TOOL_SCHEMA = [
     },
     {
         "name": "open_app",
-        "description": "Open an app, file, URL, or folder.",
+        "description": "Open an app, file, URL, or folder. Checks the config-driven app_aliases map first (e.g. 'whatsapp' -> its real path), falls back to the name as-is.",
         "input_schema": {"type": "object", "properties": {"name_or_path": {"type": "string"}}, "required": ["name_or_path"]},
+    },
+    {
+        "name": "open_url",
+        "description": "Open a URL in the default browser.",
+        "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
     },
     {
         "name": "list_dir",

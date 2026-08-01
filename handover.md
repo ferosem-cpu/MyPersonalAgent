@@ -1082,3 +1082,22 @@ Full `pytest` suite still 18/18.
 
 ### Remaining Phase 6 tasks
 6.2 (app launching desktop + phone), 6.3 (food/grocery ordering assist).
+
+---
+
+## Session Update — 2026-08-01 (same continuous session): Phase 6.2 — App launching, desktop + phone
+
+**Desktop** (`platform_ops.py`, `agent.py`): `open_app` now checks a config-driven `app_aliases` map (`config.json`, new empty `{}` scaffold) before falling through to the raw name unchanged - lets "open whatsapp" resolve to a real path for apps `os.startfile()` can't find by name alone (UWP apps, anything off PATH), with zero behavior change for names that already worked. Added `open_url(url)` (`platform_ops.py` + `LocalTools.open_url`) - normalizes a bare domain to `https://` and opens it via the same OS-launch mechanism as `open_app`. Both wired into CLI/web/Telegram-bot tools_dicts and **both excluded from the phone chat endpoint** (`routes_chat.py`) - `open_app` already was from Task 3.3, `open_url` was added there too for the same reason, per the task's own instruction to keep both excluded.
+
+**Android** (`SettingsRepository.kt`, `SettingsViewModel.kt`, `SettingsScreen.kt`): a new "App aliases" section in Settings stores a user-editable `alias -> Android package name` map in DataStore (JSON-encoded string, parsed via kotlinx.serialization) and an "Open app" quick-action text field + button right above it. Typing an alias (or a raw package name) and tapping Open resolves through the map and launches via `PackageManager.getLaunchIntentForPackage` + `startActivity` - **purely local, no server round-trip**, exactly as specified. Shows a clear inline message if the resolved package isn't installed, rather than silently failing.
+
+**Verified:**
+- Alias-resolution logic tested directly (monkeypatched `platform_open_app` to capture the call): an aliased name correctly resolves to its configured target, an unaliased name passes through unchanged.
+- `open_url('example.com')` actually run for real - correctly normalized to `https://example.com` and opened in the default browser.
+- **Live phone-chat refusal**, same pattern as every other excluded tool this session: asked the real API "open the url example.com for me" - correctly replied it can't open URLs/apps through that interface and suggested doing it manually, no crash.
+- Full `pytest` suite still 18/18. Android `assembleDebug` succeeds.
+
+**Not verified on-device**: the Settings screen's alias list UI and the "Open app" button's actual `startActivity` launch both need a real phone to confirm (no emulator/device in this environment) - the ViewModel logic was verified as far as it can be without a real `PackageManager`. Updated APK will be delivered for the user to try both the alias-add flow and launching a real installed app by alias.
+
+### Remaining Phase 6 tasks
+6.3 (food/grocery ordering assist) - last task before Phase 6 is done and this session pauses for Phase 7/8 per the user's instruction.
