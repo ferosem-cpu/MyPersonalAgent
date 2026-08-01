@@ -55,9 +55,28 @@ instance/
 *.db
 *.sqlite
 *.sqlite3
+agent/data.db-*
 
-# Tracker data (local only)
+# Uploads (local only)
+agent/uploads/
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# Tracker data (local only) - contains real personal data: todos, worklog, memory notes,
+# and contacts (names/phone numbers/emails). Never push this to a remote.
 tracker/data/*.json
+tracker/data/*.vcf
+tracker/data/contacts/
+
+# Agent-side local data mirrors and contact stores (same PII concern as above)
+agent/data/
+agent/contacts.json
+agent/contacts/
+agent/*.vcf
 
 # API credentials
 credentials.json

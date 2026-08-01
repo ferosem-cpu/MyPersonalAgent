@@ -3,12 +3,17 @@ from __future__ import annotations
 import json
 import os
 import logging
+from pathlib import Path
 from typing import Any, Callable
 from abc import ABC, abstractmethod
 
 from anthropic import Anthropic
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+AGENT_DIR = Path(__file__).resolve().parent
+load_dotenv(AGENT_DIR / ".env")
 
 SYSTEM_PROMPT = """You are a local personal agent. Use tools for file, shell, app, web, worklog, todo, and memory tasks.
 Keep answers concise. Never call destructive shell/file actions without relying on the tool confirmation gate."""
@@ -93,6 +98,26 @@ TOOL_SCHEMA = [
         "description": "Recall memory notes by keyword query.",
         "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
     },
+    {
+        "name": "save_contact",
+        "description": "Save a contact (name + phone/email) and write it out as a .vcf file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "phone_number": {"type": "string"},
+                "email": {"type": "string"},
+                "first_name": {"type": "string"},
+                "last_name": {"type": "string"},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "list_contacts",
+        "description": "List saved contacts, optionally filtered by a name/phone-number search query.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": []},
+    },
 ]
 
 
@@ -114,6 +139,11 @@ class LLMProvider(ABC):
 
     def reset(self) -> None:
         self.history.clear()
+
+    def seed_history(self, turns: list[dict[str, str]]) -> None:
+        """Restore prior user/assistant turns (plain text only, no tool-call detail)
+        so switching providers mid-conversation doesn't drop context."""
+        self.history = [{"role": t["role"], "content": t["text"]} for t in turns]
 
     @abstractmethod
     def ask(self, text: str) -> str:
@@ -180,6 +210,10 @@ class OpenAICompatibleProvider(LLMProvider):
         if default_headers:
             kwargs["default_headers"] = default_headers
         return OpenAI(**kwargs)
+
+    def seed_history(self, turns: list[dict[str, str]]) -> None:
+        self.history = [{"role": "system", "content": SYSTEM_PROMPT}]
+        self.history.extend({"role": t["role"], "content": t["text"]} for t in turns)
 
     def ask(self, text: str) -> str:
         if not self.history:
@@ -278,6 +312,14 @@ class GoogleProvider(LLMProvider):
         )
         self._chat = self._client.chats.create(model=model, config=self._chat_config)
 
+    def seed_history(self, turns: list[dict[str, str]]) -> None:
+        types = self._types
+        history = [
+            types.Content(role="model" if t["role"] == "assistant" else "user", parts=[types.Part.from_text(text=t["text"])])
+            for t in turns
+        ]
+        self._chat = self._client.chats.create(model=self.model, config=self._chat_config, history=history)
+
     def ask(self, text: str) -> str:
         types = self._types
         message: Any = text
@@ -372,21 +414,38 @@ class MultiProviderLLMClient:
         """
         self.config = config
         self.tools = tools
-        self.manual_provider = manual_provider or os.getenv("LLM_PROVIDER")
+        self.manual_provider = manual_provider or os.getenv("LLM_PROVIDER") or config.get("llm_provider")
         self.current_provider: LLMProvider | None = None
         self.current_provider_name: str | None = None
         # Providers that have failed an actual request in this session - skipped
         # by auto-fallback so it doesn't keep re-picking a provider that just failed.
         self._failed_providers: set[str] = set()
+        # Plain-text turn log, independent of any one provider's internal history
+        # format, so switching providers mid-conversation carries context over.
+        self.turns: list[dict[str, str]] = []
 
         # Get provider list from config
-        self.providers = config.get("llm_providers", [
+        configured_providers = config.get("llm_providers", [
             {"provider": "anthropic", "model": "claude-opus-4-8"},
             {"provider": "openai", "model": "gpt-4o"},
             {"provider": "google", "model": "gemini-2.0-flash"},
             {"provider": "grok", "model": "grok-3"},
             {"provider": "nvidia", "model": "nemotron-ultra"},
         ])
+        if self.manual_provider:
+            preferred = [p for p in configured_providers if p.get("provider") == self.manual_provider]
+            if preferred:
+                self.providers = preferred + [p for p in configured_providers if p.get("provider") != self.manual_provider]
+            else:
+                self.providers = configured_providers
+        elif config.get("llm_provider"):
+            preferred = [p for p in configured_providers if p.get("provider") == config.get("llm_provider")]
+            if preferred:
+                self.providers = preferred + [p for p in configured_providers if p.get("provider") != config.get("llm_provider")]
+            else:
+                self.providers = configured_providers
+        else:
+            self.providers = configured_providers
 
         self.fallback_enabled = config.get("fallback_enabled", True)
         self._initialize_provider()
@@ -397,13 +456,10 @@ class MultiProviderLLMClient:
             # Manual provider selection
             for prov_config in self.providers:
                 if prov_config["provider"] == self.manual_provider:
-                    if not self._load_provider(prov_config):
-                        raise RuntimeError(
-                            f"Failed to load provider '{self.manual_provider}'. "
-                            "Check its API key and required library are installed."
-                        )
-                    return
-            logger.warning(f"Manual provider '{self.manual_provider}' not found. Using auto-fallback.")
+                    if self._load_provider(prov_config):
+                        return
+                    break
+            logger.warning(f"Manual provider '{self.manual_provider}' not found or failed. Trying fallback providers.")
 
         # Auto-fallback mode
         self._try_providers()
@@ -413,11 +469,32 @@ class MultiProviderLLMClient:
         for prov_config in self.providers:
             if prov_config["provider"] in self._failed_providers:
                 continue
+            if not self._provider_available(prov_config):
+                self._failed_providers.add(prov_config["provider"])
+                continue
             if self._load_provider(prov_config, suppress_error=True):
                 return
 
         # If all fail, raise error
         raise RuntimeError("All LLM providers failed. Check API keys in .env")
+
+    def _provider_available(self, prov_config: dict) -> bool:
+        provider_name = prov_config.get("provider")
+        if not provider_name:
+            return False
+        if provider_name == "anthropic":
+            return bool(os.getenv("ANTHROPIC_API_KEY"))
+        if provider_name == "openai":
+            return bool(os.getenv("OPENAI_API_KEY"))
+        if provider_name == "google":
+            return bool(os.getenv("GOOGLE_API_KEY"))
+        if provider_name == "grok":
+            return bool(os.getenv("GROK_API_KEY"))
+        if provider_name == "nvidia":
+            return bool(os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY_2"))
+        if provider_name == "openrouter":
+            return bool(os.getenv("OPENROUTER_API_KEY"))
+        return True
 
     def _load_provider(self, prov_config: dict, suppress_error: bool = False) -> bool:
         """Load a specific provider. Returns True if successful."""
@@ -428,6 +505,8 @@ class MultiProviderLLMClient:
             ProviderClass = self.PROVIDERS[provider_name]
             self.current_provider = ProviderClass(model, self.tools)
             self.current_provider_name = provider_name
+            if self.turns:
+                self.current_provider.seed_history(self.turns)
             logger.info(f"✓ Loaded {provider_name} ({model})")
             return True
         except Exception as e:
@@ -439,6 +518,7 @@ class MultiProviderLLMClient:
 
     def reset(self) -> None:
         """Reset conversation history."""
+        self.turns.clear()
         if self.current_provider:
             self.current_provider.reset()
 
@@ -450,17 +530,28 @@ class MultiProviderLLMClient:
         last_exc: Exception | None = None
         for _ in range(len(self.providers) + 1):
             try:
-                return self.current_provider.ask(text)
+                reply = self.current_provider.ask(text)
+                self.turns.append({"role": "user", "text": text})
+                self.turns.append({"role": "assistant", "text": reply})
+                return reply
             except Exception as e:
                 last_exc = e
-                if not (self.fallback_enabled and not self.manual_provider):
+                if not self.fallback_enabled:
                     raise
-                logger.warning(f"Provider {self.current_provider_name} failed: {e}. Trying fallback...")
-                self._failed_providers.add(self.current_provider_name)
-                try:
-                    self._try_providers()
-                except RuntimeError:
-                    break
+                if self.manual_provider:
+                    logger.warning(f"Provider {self.current_provider_name} failed: {e}. Trying fallback...")
+                    self._failed_providers.add(self.current_provider_name)
+                    try:
+                        self._try_providers()
+                    except RuntimeError:
+                        break
+                else:
+                    logger.warning(f"Provider {self.current_provider_name} failed: {e}. Trying fallback...")
+                    self._failed_providers.add(self.current_provider_name)
+                    try:
+                        self._try_providers()
+                    except RuntimeError:
+                        break
         raise last_exc  # type: ignore[misc]
 
     def set_manual_provider(self, provider_name: str | None) -> None:

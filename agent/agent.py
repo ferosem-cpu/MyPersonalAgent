@@ -183,7 +183,7 @@ class LocalTools:
         return todo
 
     def list_todos(self, status: str = "open") -> list[dict[str, Any]]:
-        todos = self.storage.todos().get("todos", [])
+        todos = [t for t in self.storage.todos().get("todos", []) if not t.get("deleted")]
         if status != "all":
             todos = [t for t in todos if t.get("status") == status]
         todos.sort(key=lambda t: t.get("snooze_until") or t.get("due") or "")
@@ -209,6 +209,37 @@ class LocalTools:
         notes = self.storage.recall(query)
         log_action("recall", {"query": query}, f"{len(notes)} results")
         return notes
+
+    def save_contact(
+        self,
+        name: str,
+        phone_number: str | None = None,
+        email: str | None = None,
+        telegram_user_id: str | int | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+    ) -> dict[str, Any]:
+        contact = self.storage.add_contact(
+            name=name,
+            phone_number=phone_number,
+            email=email,
+            telegram_user_id=telegram_user_id,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        log_action("save_contact", contact, name)
+        return contact
+
+    def list_contacts(self, query: str | None = None) -> list[dict[str, Any]]:
+        contacts = self.storage.contacts().get("contacts", [])
+        if query:
+            q = query.lower()
+            contacts = [
+                c for c in contacts
+                if q in (c.get("name") or "").lower() or q in (c.get("phone_number") or "")
+            ]
+        log_action("list_contacts", {"query": query}, f"{len(contacts)} results")
+        return contacts
 
 
 def main() -> None:
@@ -237,6 +268,8 @@ def main() -> None:
         "snooze_todo": tools.snooze_todo,
         "remember": tools.remember,
         "recall": tools.recall,
+        "save_contact": tools.save_contact,
+        "list_contacts": tools.list_contacts,
     }
 
     # Initialize multi-provider LLM client

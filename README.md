@@ -17,7 +17,16 @@ agent/
   .env.example
   requirements.txt
   build.bat
+  storage.py
+  storage_sqlite.py
   migrate_json_to_firestore.py
+  migrate_json_to_sqlite.py
+  api/
+    server.py
+    schemas.py
+    routes_todos.py, routes_worklog.py, routes_memory.py, routes_contacts.py, routes_sync.py
+  run_api.py
+android/            # Phase 1, see PLAN.md
 ```
 
 ## Work Tracker
@@ -126,6 +135,31 @@ Run the idempotent migration:
 ```powershell
 python migrate_json_to_firestore.py
 ```
+
+## REST API (for the Android app)
+
+A FastAPI server exposes todos, worklog, memory, and contacts over authenticated REST, backed by the same `storage.py` gateway as everything else.
+
+```powershell
+cd agent
+copy .env.example .env   # if you haven't already
+python -c "import secrets;print(secrets.token_urlsafe(32))"   # generate a token
+notepad .env              # paste it into AGENT_API_TOKEN=
+.\run_api.bat
+```
+
+Open http://localhost:8500/docs for the interactive OpenAPI UI. Every request except `/api/v1/health` requires an `X-API-Key` header matching `AGENT_API_TOKEN`.
+
+Storage backend is config-driven (`config.json`: `"storage": "json" | "sqlite" | "firestore"`). To move to SQLite (needed once multiple processes write concurrently — see Phase 2 of `PLAN.md`), run `python migrate_json_to_sqlite.py`, then flip the config value; flip back to `"json"` any time to roll back instantly (the JSON files are never touched by SQLite mode).
+
+## Phone access
+
+To reach the API from your Android phone:
+
+- **Recommended:** install [Tailscale](https://tailscale.com) on both the laptop and the phone. The Android app then talks to `http://<tailscale-ip>:8500` — no port-forwarding, traffic is encrypted, and it's free.
+- **Alternative:** LAN-only access at `http://192.168.x.x:8500` while your phone is on the same home Wi-Fi as the laptop.
+
+**Known limitation:** the API is only reachable while the laptop is on and the scheduled task (`MyPersonalAgent-*`, see `handover.md`) is running. A future cloud deployment (an always-free GCP e2-micro instance, or Firestore storage) would lift `run_api.py` and `scheduler.py` off the laptop unchanged, since everything already routes through `storage.py` — see Phase 3 of `PLAN.md` for that stretch goal.
 
 ## Build
 

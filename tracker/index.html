@@ -202,6 +202,7 @@
         <button data-view="history">History</button>
         <button data-view="todos">To-Dos</button>
         <button data-view="memory">Memory</button>
+        <button data-view="contacts">Contacts</button>
         <button data-view="report">Report</button>
       </nav>
     </div>
@@ -285,6 +286,14 @@
         </div>
       </section>
 
+      <section class="view" id="contacts">
+        <div class="panel">
+          <h2>Contacts</h2>
+          <p class="meta">VCF files saved from Telegram appear here and are stored in the data/contacts folder.</p>
+          <div id="contactsList" style="margin-top:14px"></div>
+        </div>
+      </section>
+
       <section class="view" id="report">
         <div class="panel">
           <h2>Daily Report</h2>
@@ -308,6 +317,16 @@
       </div>
     </aside>
   </main>
+
+  <dialog id="contactDialog">
+    <div class="dialog-inner grid">
+      <h2 id="contactDialogTitle">Contact</h2>
+      <textarea id="contactDialogText" readonly style="min-height:160px"></textarea>
+      <div class="actions">
+        <button class="primary" onclick="$('contactDialog').close()">Close</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="editDialog">
     <form class="dialog-inner grid" method="dialog" id="editForm">
@@ -340,6 +359,7 @@
       worklog: { version: 1, entries: [] },
       todos: { version: 1, todos: [] },
       memory: { version: 1, notes: [] },
+      contacts: [],
       handles: {},
       theme: localStorage.getItem("theme") || "light"
     };
@@ -439,7 +459,9 @@
           alert("Folder access is not available in this browser. Use Chrome or Edge, or use Import/Export JSON.");
           return;
         }
-        state.handles.dataDir = await showDirectoryPicker({ mode: "readwrite" });
+        const pickerOpts = { mode: "readwrite", id: "mypersonalagent-data" };
+        if (state.handles.dataDir) pickerOpts.startIn = state.handles.dataDir;
+        state.handles.dataDir = await showDirectoryPicker(pickerOpts);
         await idb.set("dataDir", state.handles.dataDir);
         await this.loadDataFolder();
       },
@@ -464,6 +486,7 @@
         state.worklog = await this.readDataFile("worklog.json", { version: 1, entries: [] });
         state.todos = await this.readDataFile("todos.json", { version: 1, todos: [] });
         state.memory = await this.readDataFile("memory.json", { version: 1, notes: [] });
+        await this.refreshContacts();
         setStatus("Loaded tracker/data folder");
       },
       async loadWorklogFromHandle() {
@@ -471,11 +494,42 @@
         state.worklog = JSON.parse(await file.text());
         setStatus(`Loaded ${file.name}`);
       },
+      async refreshContacts() {
+        if (!state.handles.dataDir) {
+          state.contacts = [];
+          return;
+        }
+        if (!await verifyPermission(state.handles.dataDir, false)) return;
+        const contactsDir = await state.handles.dataDir.getDirectoryHandle("contacts", { create: true });
+        const entries = [];
+        for await (const [name, handle] of contactsDir.entries()) {
+          if (handle.kind === "file" && name.toLowerCase().endsWith(".vcf")) {
+            entries.push({ name, path: `contacts/${name}` });
+          }
+        }
+        state.contacts = entries.sort((a, b) => a.name.localeCompare(b.name));
+      },
+      async deleteContact(name) {
+        if (!state.handles.dataDir) return;
+        if (!await verifyPermission(state.handles.dataDir, true)) return;
+        const contactsDir = await state.handles.dataDir.getDirectoryHandle("contacts", { create: true });
+        await contactsDir.removeEntry(name);
+        await this.refreshContacts();
+      },
+      async readContact(name) {
+        if (!state.handles.dataDir) return "";
+        if (!await verifyPermission(state.handles.dataDir, false)) return "";
+        const contactsDir = await state.handles.dataDir.getDirectoryHandle("contacts", { create: true });
+        const handle = await contactsDir.getFileHandle(name);
+        const file = await handle.getFile();
+        return file.text();
+      },
       async saveAll() {
         if (state.handles.dataDir && await verifyPermission(state.handles.dataDir, true)) {
           await this.writeDataFile("worklog.json", state.worklog);
           await this.writeDataFile("todos.json", state.todos);
           await this.writeDataFile("memory.json", state.memory);
+          await this.refreshContacts();
         } else if (state.handles.worklog && await verifyPermission(state.handles.worklog, true)) {
           const writable = await state.handles.worklog.createWritable();
           await writable.write(JSON.stringify(state.worklog, null, 2));
@@ -569,6 +623,7 @@
 
       const mq = $("memorySearch").value.toLowerCase();
       renderItems($("memoryList"), state.memory.notes.filter(n => !mq || `${n.text} ${(n.tags || []).join(" ")}`.toLowerCase().includes(mq)), "memory");
+      $("contactsList").innerHTML = state.contacts.length ? state.contacts.map(contact => { const safeName = contact.name.replace(/'/g, "\\'"); return `<div class="item"><div class="item-head"><div><div class="title" style="cursor:pointer" onclick="viewContact('${safeName}')">${escapeHtml(contact.name)}</div><div class="meta">${escapeHtml(contact.path)}</div></div></div><div class="actions"><button onclick="viewContact('${safeName}')">View</button><button class="danger" onclick="deleteContact('${safeName}')">Delete</button></div></div>`; }).join("") : `<div class="empty">No VCF contacts have been saved yet.</div>`;
       renderSummary();
       renderReport();
     }
@@ -616,10 +671,23 @@
     window.completeTodo = completeTodo;
     window.snoozeTodo = snoozeTodo;
     window.deleteBy = deleteBy;
+    window.deleteContact = (name) => {
+      if (!confirm(`Delete contact file "${name}"?`)) return;
+      storage.deleteContact(name).then(render);
+    };
+    window.viewContact = async (name) => {
+      const text = await storage.readContact(name);
+      $("contactDialogTitle").textContent = name;
+      $("contactDialogText").value = text || "(empty file)";
+      $("contactDialog").showModal();
+    };
 
     document.querySelectorAll("nav button").forEach(btn => btn.addEventListener("click", () => {
       document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", String(b === btn)));
       document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === btn.dataset.view));
+      if (btn.dataset.view === "contacts") {
+        storage.refreshContacts().then(render);
+      }
       render();
     }));
     $("quickForm").addEventListener("submit", e => {

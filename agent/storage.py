@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +12,20 @@ from typing import Any
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def with_sync_fields(item: dict[str, Any]) -> dict[str, Any]:
+    """Ensure sync metadata exists. Non-destructive; safe on legacy records."""
+    item.setdefault("updated", item.get("created") or item.get("ts") or now_iso())
+    item.setdefault("deleted", False)
+    return item
+
+
+def _updated_dt(value: str) -> datetime:
+    """Parse an `updated` ISO timestamp (any UTC offset, or 'Z') into a UTC-aware
+    datetime so chronological comparisons are correct regardless of which
+    timezone the writer's clock was in (client and server clocks can differ)."""
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
 
 
 def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
@@ -68,6 +83,96 @@ class JsonStorage:
         _write_json(self._path("memory_json"), data)
         self._sync_to_drive(self._path("memory_json"))
 
+    def contacts(self) -> dict[str, Any]:
+        return _read_json(self._path("contacts_json"), {"version": 1, "contacts": []})
+
+    def save_contacts(self, data: dict[str, Any]) -> None:
+        _write_json(self._path("contacts_json"), data)
+        self._sync_to_drive(self._path("contacts_json"))
+
+    def build_vcf(self, contact: dict[str, Any]) -> str:
+        name = contact.get("name") or "Unknown"
+        phone = contact.get("phone_number") or ""
+        email = contact.get("email") or ""
+        lines = [
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            f"FN:{name}",
+            f"N:{name};;;",
+        ]
+        if phone:
+            lines.append(f"TEL;TYPE=CELL:{phone}")
+        if email:
+            lines.append(f"EMAIL:{email}")
+        lines.append("END:VCARD")
+        return "\n".join(lines) + "\n"
+
+    def all_contacts_vcf(self) -> str:
+        contacts = self.contacts().get("contacts", [])
+        return "".join(self.build_vcf(c) for c in contacts)
+
+    def save_contact_vcf(self, contact: dict[str, Any]) -> Path:
+        contacts_dir = self._path("contacts_json").parent / "contacts"
+        contacts_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", contact.get("name") or "contact").strip("._") or "contact"
+        digits = re.sub(r"\D", "", contact.get("phone_number") or "")
+        filename = f"{safe_name}_{digits[-4:]}.vcf" if digits else f"{safe_name}.vcf"
+        path = contacts_dir / filename
+        path.write_text(self.build_vcf(contact), encoding="utf-8")
+        return path
+
+    def add_contact(
+        self,
+        name: str,
+        *,
+        phone_number: str | None = None,
+        email: str | None = None,
+        telegram_user_id: str | int | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+    ) -> dict[str, Any]:
+        data = self.contacts()
+        contacts = data.setdefault("contacts", [])
+
+        existing = None
+        for contact in contacts:
+            if phone_number and contact.get("phone_number") == phone_number:
+                existing = contact
+                break
+            if telegram_user_id is not None and str(contact.get("telegram_user_id")) == str(telegram_user_id):
+                existing = contact
+                break
+
+        if existing is None:
+            contact = {
+                "id": str(uuid.uuid4()),
+                "name": name or " ".join(part for part in [first_name, last_name] if part).strip() or "Unknown",
+                "first_name": first_name or None,
+                "last_name": last_name or None,
+                "phone_number": phone_number or None,
+                "email": email or None,
+                "telegram_user_id": str(telegram_user_id) if telegram_user_id is not None else None,
+                "created": now_iso(),
+                "updated": now_iso(),
+                "deleted": False,
+            }
+            contacts.append(contact)
+            self.save_contacts(data)
+            self.save_contact_vcf(contact)
+            return contact
+
+        existing.setdefault("name", name or "Unknown")
+        existing["first_name"] = first_name or existing.get("first_name")
+        existing["last_name"] = last_name or existing.get("last_name")
+        existing["phone_number"] = phone_number or existing.get("phone_number")
+        existing["email"] = email or existing.get("email")
+        existing["telegram_user_id"] = str(telegram_user_id) if telegram_user_id is not None else existing.get("telegram_user_id")
+        existing["updated"] = now_iso()
+        existing.setdefault("deleted", False)
+        self.save_contacts(data)
+        self.save_contact_vcf(existing)
+        return existing
+
     def add_work_entry(self, title: str, desc: str = "", project: str = "", minutes: int = 0) -> dict[str, Any]:
         data = self.worklog()
         entry = {
@@ -77,6 +182,8 @@ class JsonStorage:
             "desc": desc,
             "project": project,
             "minutes": int(minutes or 0),
+            "updated": now_iso(),
+            "deleted": False,
         }
         data.setdefault("entries", []).append(entry)
         self.save_worklog(data)
@@ -104,6 +211,8 @@ class JsonStorage:
             "completed": None,
             "last_reminded": None,
             "escalation_step": 0,
+            "updated": now_iso(),
+            "deleted": False,
         }
         data.setdefault("todos", []).append(todo)
         self.save_todos(data)
@@ -116,6 +225,7 @@ class JsonStorage:
             return None
         todo["status"] = "done"
         todo["completed"] = now_iso()
+        todo["updated"] = now_iso()
         self.save_todos(data)
         self.add_work_entry(f"Completed: {todo['title']}", "Auto-logged from to-do completion.", todo.get("project", ""), 0)
         return todo
@@ -127,12 +237,20 @@ class JsonStorage:
             return None
         todo["status"] = "snoozed"
         todo["snooze_until"] = until_iso
+        todo["updated"] = now_iso()
         self.save_todos(data)
         return todo
 
     def remember(self, text: str, tags: list[str] | None = None) -> dict[str, Any]:
         data = self.memory()
-        note = {"id": str(uuid.uuid4()), "text": text, "tags": tags or [], "created": now_iso()}
+        note = {
+            "id": str(uuid.uuid4()),
+            "text": text,
+            "tags": tags or [],
+            "created": now_iso(),
+            "updated": now_iso(),
+            "deleted": False,
+        }
         data.setdefault("notes", []).append(note)
         self.save_memory(data)
         return note
@@ -163,6 +281,53 @@ class JsonStorage:
         terms = {x for x in q.split() if x}
         ranked = sorted(open_todos, key=lambda t: len(terms & set(t.get("title", "").lower().split())), reverse=True)
         return ranked[0] if ranked and terms & set(ranked[0].get("title", "").lower().split()) else None
+
+    _COLLECTIONS = {
+        "entries": ("tracker_json", "worklog", "save_worklog", "entries"),
+        "todos": ("todos_json", "todos", "save_todos", "todos"),
+        "notes": ("memory_json", "memory", "save_memory", "notes"),
+        "contacts": ("contacts_json", "contacts", "save_contacts", "contacts"),
+    }
+
+    def list_items(self, collection: str, since: str | None = None, include_deleted: bool = False) -> list[dict[str, Any]]:
+        _, reader, _, key = self._COLLECTIONS[collection]
+        items = [with_sync_fields(i) for i in getattr(self, reader)().get(key, [])]
+        if since:
+            since_dt = _updated_dt(since)
+            items = [i for i in items if _updated_dt(i["updated"]) > since_dt]
+        if not include_deleted:
+            items = [i for i in items if not i.get("deleted")]
+        return items
+
+    def upsert_item(self, collection: str, item: dict[str, Any]) -> dict[str, Any]:
+        """Last-write-wins upsert by id + updated timestamp. Returns the winner."""
+        _, reader, saver, key = self._COLLECTIONS[collection]
+        data = getattr(self, reader)()
+        items = data.setdefault(key, [])
+        item = with_sync_fields(dict(item))
+        item.setdefault("id", str(uuid.uuid4()))
+        for i, existing in enumerate(items):
+            if existing.get("id") == item["id"]:
+                existing = with_sync_fields(existing)
+                if _updated_dt(existing["updated"]) >= _updated_dt(item["updated"]):
+                    return existing
+                items[i] = item
+                getattr(self, saver)(data)
+                return item
+        items.append(item)
+        getattr(self, saver)(data)
+        return item
+
+    def soft_delete_item(self, collection: str, item_id: str) -> dict[str, Any] | None:
+        _, reader, saver, key = self._COLLECTIONS[collection]
+        data = getattr(self, reader)()
+        for existing in data.get(key, []):
+            if existing.get("id") == item_id:
+                existing["deleted"] = True
+                existing["updated"] = now_iso()
+                getattr(self, saver)(data)
+                return existing
+        return None
 
 
 class FirestoreStorage(JsonStorage):
@@ -214,4 +379,8 @@ def make_storage(agent_dir: Path, config: dict[str, Any]) -> JsonStorage:
         drive = DriveSync(agent_dir, config)
     if config.get("storage") == "firestore":
         return FirestoreStorage(agent_dir, config)
+    if config.get("storage") == "sqlite":
+        from storage_sqlite import SqliteStorage
+
+        return SqliteStorage(agent_dir, config, drive)
     return JsonStorage(agent_dir, config, drive)

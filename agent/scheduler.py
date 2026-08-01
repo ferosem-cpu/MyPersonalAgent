@@ -53,6 +53,8 @@ class ReminderScheduler:
         changed = False
         current = datetime.now().astimezone()
         for todo in data.get("todos", []):
+            if todo.get("deleted"):
+                continue
             if todo.get("status") == "done":
                 continue
             target = parse_iso(todo.get("snooze_until")) or parse_iso(todo.get("due"))

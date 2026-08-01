@@ -28,6 +28,12 @@ def main() -> None:
         return
 
     config = load_config(AGENT_DIR)
+    if os.getenv("LLM_PROVIDER"):
+        config["llm_provider"] = os.getenv("LLM_PROVIDER")
+    if os.getenv("LLM_MODEL"):
+        config["llm_model"] = os.getenv("LLM_MODEL")
+    if not config.get("llm_providers"):
+        config["llm_providers"] = [{"provider": config.get("llm_provider"), "model": config.get("llm_model", "")}] 
     tools = LocalTools(config)
 
     scheduler = ReminderScheduler(config, tools.storage)
@@ -47,8 +53,14 @@ def main() -> None:
         "snooze_todo": tools.snooze_todo,
         "remember": tools.remember,
         "recall": tools.recall,
+        "save_contact": tools.save_contact,
+        "list_contacts": tools.list_contacts,
     }
-    llm = MultiProviderLLMClient(config, tools_dict)
+    llm = MultiProviderLLMClient(
+        config,
+        tools_dict,
+        manual_provider=config.get("llm_provider") or os.getenv("LLM_PROVIDER"),
+    )
     print(f"LLM ready: {llm.get_status()}")
 
     bot = TelegramBot(

@@ -3,6 +3,7 @@
   "tracker_json": "../tracker/data/worklog.json",
   "todos_json": "../tracker/data/todos.json",
   "memory_json": "../tracker/data/memory.json",
+  "contacts_json": "../tracker/data/contacts.json",
   "allowed_dirs": [
     "..",
     "~/Documents",
@@ -11,37 +12,43 @@
   ],
   "model": "claude-opus-4-8",
   "confirm_destructive": true,
-  "storage": "json",
+  "storage": "sqlite",
   "llm_mode": "auto",
   "llm_providers": [
     {
       "provider": "openrouter",
       "model": "anthropic/claude-sonnet-5",
+      "enabled": true,
       "key_env": "OPENROUTER_API_KEY"
     },
     {
       "provider": "anthropic",
       "model": "claude-opus-4-8",
+      "enabled": true,
       "key_env": "ANTHROPIC_API_KEY"
     },
     {
       "provider": "openai",
       "model": "gpt-4o",
+      "enabled": true,
       "key_env": "OPENAI_API_KEY"
     },
     {
       "provider": "google",
       "model": "gemini-3.5-flash",
+      "enabled": true,
       "key_env": "GOOGLE_API_KEY"
     },
     {
       "provider": "grok",
       "model": "grok-4.3",
+      "enabled": true,
       "key_env": "GROK_API_KEY"
     },
     {
       "provider": "nvidia",
       "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "enabled": true,
       "key_env": "NVIDIA_API_KEY"
     }
   ],
@@ -60,5 +67,7 @@
     "sync_uploads": true,
     "credentials_file": "drive_credentials.json",
     "token_file": "drive_token.json"
-  }
+  },
+  "llm_provider": "google",
+  "llm_model": "gemini-3.5-flash"
 }

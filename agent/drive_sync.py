@@ -67,12 +67,21 @@ class DriveSync:
             raise RuntimeError(
                 "Google Drive is not connected yet. Run 'python drive_setup.py' once to authorize it."
             )
-        creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            self.token_path.write_text(creds.to_json(), encoding="utf-8")
-        self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        return self._service
+        try:
+            creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                self.token_path.write_text(creds.to_json(), encoding="utf-8")
+            if not creds.valid:
+                raise RuntimeError("Google Drive credentials are invalid.")
+            self._service = build("drive", "v3", credentials=creds, cache_discovery=False)
+            return self._service
+        except Exception as exc:
+            if self.token_path.exists():
+                self.token_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                "Google Drive authorization expired or was revoked. Please run 'python drive_setup.py' again to re-authorize it."
+            ) from exc
 
     def _get_or_create_folder(self, name: str, parent_id: str | None) -> str:
         cache_key = f"{parent_id}/{name}"

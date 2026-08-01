@@ -57,15 +57,111 @@ class TelegramBot:
         if not chat_id:
             return
         try:
+            contact_data = message.get("contact")
+            if contact_data:
+                self._handle_contact(chat_id, contact_data)
+                return
             file_id, suggested_name = self._extract_attachment(message)
             if file_id:
                 self._handle_attachment(chat_id, file_id, suggested_name)
                 return
             text = (message.get("text") or "").strip()
             if text:
+                if self._looks_like_export_contacts_request(text):
+                    self._handle_export_contacts(chat_id)
+                    return
+                if self._looks_like_contact_message(text):
+                    self._handle_text_contact(chat_id, text)
+                    return
                 self._dispatch(chat_id, text)
         except Exception as exc:
             self.send(chat_id, f"Error: {exc}")
+
+    def _handle_contact(self, chat_id: str, contact_data: dict[str, Any]) -> None:
+        contact = self.storage.add_contact(
+            name=" ".join(part for part in [contact_data.get("first_name"), contact_data.get("last_name")] if part).strip()
+            or "Unknown",
+            phone_number=contact_data.get("phone_number"),
+            first_name=contact_data.get("first_name"),
+            last_name=contact_data.get("last_name"),
+            telegram_user_id=contact_data.get("user_id"),
+        )
+        self._send_contact_vcf(chat_id, contact)
+
+    _PHONE_RE = re.compile(r"\+?\d[\d\s-]{4,}\d")
+
+    def _handle_text_contact(self, chat_id: str, text: str) -> None:
+        name = None
+        phone = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.lower().startswith("name:"):
+                name = stripped.split(":", 1)[1].strip()
+                continue
+            if stripped.lower().startswith(("phone:", "number:")):
+                phone = stripped.split(":", 1)[1].strip()
+                continue
+            match = self._PHONE_RE.search(stripped)
+            if not match:
+                continue
+            if not phone:
+                phone = match.group(0).strip()
+            if not name:
+                prefix = stripped[: match.start()].strip(" -:,")
+                if prefix:
+                    name = prefix
+        if not phone:
+            match = self._PHONE_RE.search(text)
+            phone = match.group(0).strip() if match else None
+        if not name:
+            name = "Contact"
+        contact = self.storage.add_contact(name=name, phone_number=phone)
+        self._send_contact_vcf(chat_id, contact)
+
+    def _send_contact_vcf(self, chat_id: str, contact: dict[str, Any]) -> None:
+        try:
+            vcf_path = self.storage.save_contact_vcf(contact)
+            with vcf_path.open("rb") as handle:
+                requests.post(
+                    f"https://api.telegram.org/bot{self.token}/sendDocument",
+                    data={"chat_id": chat_id, "caption": f"Saved contact: {contact['name']}"},
+                    files={"document": (vcf_path.name, handle, "text/vcard")},
+                    timeout=30,
+                )
+        except Exception as exc:
+            self.send(chat_id, f"Saved contact but could not send the .vcf file: {exc}")
+
+    @staticmethod
+    def _looks_like_contact_message(text: str) -> bool:
+        lower = text.lower()
+        return any(marker in lower for marker in ("contact", "phone:", "number:", "name:", "vcf")) and re.search(r"\b(?:\+?\d[\d\s-]{4,})\b", text) is not None
+
+    @staticmethod
+    def _looks_like_export_contacts_request(text: str) -> bool:
+        lower = text.lower()
+        if "contact" not in lower:
+            return False
+        if "export" in lower:
+            return True
+        return ("all" in lower or "every" in lower) and ("vcf" in lower or "file" in lower)
+
+    def _handle_export_contacts(self, chat_id: str) -> None:
+        contacts = self.storage.contacts().get("contacts", [])
+        if not contacts:
+            self.send(chat_id, "You don't have any saved contacts yet.")
+            return
+        content = self.storage.all_contacts_vcf()
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{self.token}/sendDocument",
+                data={"chat_id": chat_id, "caption": f"All {len(contacts)} contacts"},
+                files={"document": ("contacts.vcf", content.encode("utf-8"), "text/vcard")},
+                timeout=30,
+            )
+        except Exception as exc:
+            self.send(chat_id, f"Could not send the combined contacts file: {exc}")
 
     @staticmethod
     def _extract_attachment(message: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -163,7 +259,7 @@ class TelegramBot:
 
     def _send_todo_list(self, chat_id: str) -> None:
         todos = self.storage.todos().get("todos", [])
-        open_todos = [t for t in todos if t.get("status") != "done"]
+        open_todos = [t for t in todos if t.get("status") != "done" and not t.get("deleted")]
         if not open_todos:
             self.send(chat_id, "No open to-dos.")
             return

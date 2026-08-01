@@ -48,10 +48,29 @@ AVAILABLE_MODELS = {
     ],
 }
 
+PROVIDER_METADATA = {
+    "openrouter": {"label": "OpenRouter", "env_var": "OPENROUTER_API_KEY", "default_model": "anthropic/claude-sonnet-5"},
+    "anthropic": {"label": "Anthropic", "env_var": "ANTHROPIC_API_KEY", "default_model": "claude-opus-4-8"},
+    "openai": {"label": "OpenAI", "env_var": "OPENAI_API_KEY", "default_model": "gpt-4o"},
+    "google": {"label": "Google", "env_var": "GOOGLE_API_KEY", "default_model": "gemini-3.5-flash"},
+    "grok": {"label": "Grok", "env_var": "GROK_API_KEY", "default_model": "grok-4.3"},
+    "nvidia": {"label": "NVIDIA", "env_var": "NVIDIA_API_KEY", "default_model": "nvidia/llama-3.3-nemotron-super-49b-v1.5"},
+}
+
+DEFAULT_PROVIDER_CONFIGS = [
+    {"provider": "openrouter", "model": "anthropic/claude-sonnet-5", "enabled": True, "key_env": "OPENROUTER_API_KEY"},
+    {"provider": "anthropic", "model": "claude-opus-4-8", "enabled": True, "key_env": "ANTHROPIC_API_KEY"},
+    {"provider": "openai", "model": "gpt-4o", "enabled": True, "key_env": "OPENAI_API_KEY"},
+    {"provider": "google", "model": "gemini-3.5-flash", "enabled": True, "key_env": "GOOGLE_API_KEY"},
+    {"provider": "grok", "model": "grok-4.3", "enabled": True, "key_env": "GROK_API_KEY"},
+    {"provider": "nvidia", "model": "nvidia/llama-3.3-nemotron-super-49b-v1.5", "enabled": True, "key_env": "NVIDIA_API_KEY"},
+]
+
 app = Flask(__name__)
 app.secret_key = "myagent-secret"
 app.jinja_env.cache = None
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 # Global state
 current_llm_client = None
@@ -60,17 +79,49 @@ current_model = None
 tools = None
 
 
+def get_provider_configs(config=None):
+    """Return provider configs from the agent config, falling back to built-in defaults."""
+    if config is None:
+        config = load_config(AGENT_DIR)
+    providers = config.get("llm_providers") or DEFAULT_PROVIDER_CONFIGS.copy()
+    normalized = []
+    for entry in providers:
+        provider_name = entry.get("provider")
+        if not provider_name:
+            continue
+        metadata = PROVIDER_METADATA.get(provider_name, {})
+        normalized_entry = {
+            "provider": provider_name,
+            "model": entry.get("model") or metadata.get("default_model", ""),
+            "enabled": bool(entry.get("enabled", True)),
+            "key_env": entry.get("key_env") or metadata.get("env_var", ""),
+        }
+        normalized.append(normalized_entry)
+    if not normalized:
+        normalized = [p.copy() for p in DEFAULT_PROVIDER_CONFIGS]
+    return normalized
+
+
+def save_provider_configs(config, providers, default_provider=None, default_model=None):
+    """Persist provider configuration back to config.json."""
+    config["llm_providers"] = providers
+    if default_provider:
+        config["llm_provider"] = default_provider
+    if default_model:
+        config["llm_model"] = default_model
+    (AGENT_DIR / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
 def detect_available_providers():
-    """Detect which providers have API keys configured."""
-    env_keys = {
-        "openrouter": os.getenv("OPENROUTER_API_KEY"),
-        "anthropic": os.getenv("ANTHROPIC_API_KEY"),
-        "openai": os.getenv("OPENAI_API_KEY"),
-        "google": os.getenv("GOOGLE_API_KEY"),
-        "grok": os.getenv("GROK_API_KEY"),
-        "nvidia": os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_API_KEY_2"),
-    }
-    return {k: bool(v) for k, v in env_keys.items()}
+    """Detect which enabled providers have API keys configured."""
+    config = load_config(AGENT_DIR)
+    env_keys = {}
+    for provider in get_provider_configs(config):
+        env_var = provider.get("key_env") or PROVIDER_METADATA.get(provider.get("provider", {}), {}).get("env_var")
+        if not env_var:
+            continue
+        env_keys[provider["provider"]] = os.getenv(env_var) or os.getenv(env_var.replace("_API_KEY", "_API_KEY_2"))
+    return {k: bool(v) for k, v in env_keys.items() if k in {p["provider"] for p in get_provider_configs(config)}}
 
 
 def initialize_llm(provider, model):
@@ -78,22 +129,30 @@ def initialize_llm(provider, model):
     global current_llm_client, current_provider, current_model, tools
 
     config = load_config(AGENT_DIR)
-
-    # Override provider in config
-    config["llm_providers"] = [
-        {
+    providers = get_provider_configs(config)
+    existing = None
+    for entry in providers:
+        if entry["provider"] == provider:
+            existing = entry
+            break
+    if existing is None:
+        providers.append({
             "provider": provider,
             "model": model,
-            "key_env": {
-                "openrouter": "OPENROUTER_API_KEY",
-                "anthropic": "ANTHROPIC_API_KEY",
-                "openai": "OPENAI_API_KEY",
-                "google": "GOOGLE_API_KEY",
-                "grok": "GROK_API_KEY",
-                "nvidia": "NVIDIA_API_KEY",
-            }.get(provider, "")
-        }
-    ]
+            "enabled": True,
+            "key_env": PROVIDER_METADATA.get(provider, {}).get("env_var", ""),
+        })
+    else:
+        existing["model"] = model
+        existing["enabled"] = True
+    for entry in providers:
+        if entry.get("provider") == provider:
+            entry["enabled"] = True
+            entry["model"] = model
+    config["llm_provider"] = provider
+    config["llm_model"] = model
+    config["llm_providers"] = providers
+    save_provider_configs(config, providers, provider, model)
 
     # Initialize tools
     if tools is None:
@@ -116,6 +175,8 @@ def initialize_llm(provider, model):
             "snooze_todo": tools.snooze_todo,
             "remember": tools.remember,
             "recall": tools.recall,
+            "save_contact": tools.save_contact,
+            "list_contacts": tools.list_contacts,
         },
         manual_provider=provider
     )
@@ -414,26 +475,10 @@ HTML_TEMPLATE = """
 
                 <div id="keys-tab" class="tab-content">
                     <div class="section">
-                        <h3>🔑 API Keys</h3>
-                        <label>OpenRouter</label>
-                        <input type="password" class="api-key-input" id="openrouter_key" placeholder="sk-or-...">
-
-                        <label>Anthropic</label>
-                        <input type="password" class="api-key-input" id="anthropic_key" placeholder="sk-ant-...">
-
-                        <label>OpenAI</label>
-                        <input type="password" class="api-key-input" id="openai_key" placeholder="sk-...">
-
-                        <label>Google</label>
-                        <input type="password" class="api-key-input" id="google_key" placeholder="API key...">
-
-                        <label>Grok</label>
-                        <input type="password" class="api-key-input" id="grok_key" placeholder="API key...">
-
-                        <label>NVIDIA</label>
-                        <input type="password" class="api-key-input" id="nvidia_key" placeholder="nvapi-...">
-
-                        <button onclick="saveApiKeys()" style="width: 100%; margin-top: 15px;">Save API Keys</button>
+                        <h3>🔑 Providers & API Keys</h3>
+                        <div id="providerEditor"></div>
+                        <button onclick="addProviderRow()" style="width: 100%; margin-top: 10px;">Add Provider</button>
+                        <button onclick="saveApiKeys()" style="width: 100%; margin-top: 10px;">Save Providers</button>
                         <div class="save-status" id="saveStatus"></div>
                     </div>
                 </div>
@@ -461,6 +506,7 @@ HTML_TEMPLATE = """
         let initialized = false;
         let currentProvider = null;
         let currentModel = null;
+        let configuredProviders = [];
 
         const PROVIDER_LABELS = {
             openrouter: 'OpenRouter',
@@ -479,8 +525,8 @@ HTML_TEMPLATE = """
             const select = document.getElementById('providerSelect');
             const available = document.getElementById('availableProviders');
             available.innerHTML = '';
+            select.innerHTML = '<option value="">Select Provider...</option>';
 
-            // Populate the select dropdown with provider options
             Object.entries(providers).forEach(([name, hasKey]) => {
                 const option = document.createElement('option');
                 option.value = name;
@@ -489,18 +535,17 @@ HTML_TEMPLATE = """
                 select.appendChild(option);
             });
 
-            // Add status indicators
             Object.entries(providers).forEach(([name, hasKey]) => {
                 const div = document.createElement('div');
                 div.className = 'provider-status ' + (hasKey ? 'active' : 'inactive');
-                div.textContent = (hasKey ? '✓' : '✗') + ' ' + name;
+                div.textContent = (hasKey ? '✓' : '✗') + ' ' + (PROVIDER_LABELS[name] || name);
                 available.appendChild(div);
             });
 
-            // Pre-select first available
             const firstAvailable = Object.entries(providers).find(([_, hasKey]) => hasKey);
             if (firstAvailable) {
                 select.value = firstAvailable[0];
+                currentProvider = firstAvailable[0];
                 onProviderChange();
             }
         }
@@ -615,61 +660,72 @@ HTML_TEMPLATE = """
             }
         }
 
-        const DEFAULT_KEY_PLACEHOLDERS = {
-            openrouter_key: 'sk-or-...',
-            anthropic_key: 'sk-ant-...',
-            openai_key: 'sk-...',
-            google_key: 'API key...',
-            grok_key: 'API key...',
-            nvidia_key: 'nvapi-...'
-        };
-
-        function setKeyPlaceholder(inputId, maskedValue) {
-            const el = document.getElementById(inputId);
-            // Never write the masked preview into the field's value - it is not
-            // a usable key, and resubmitting it would overwrite the real key.
-            el.value = '';
-            el.placeholder = maskedValue
-                ? maskedValue + ' (saved - leave blank to keep)'
-                : DEFAULT_KEY_PLACEHOLDERS[inputId];
+        function addProviderRow(provider = null) {
+            const container = document.getElementById('providerEditor');
+            const row = document.createElement('div');
+            row.className = 'provider-editor-row';
+            row.style.marginBottom = '10px';
+            row.style.padding = '10px';
+            row.style.border = '1px solid #eee';
+            row.style.borderRadius = '4px';
+            const defaultName = provider ? provider.provider : '';
+            const defaultModel = provider ? provider.model : '';
+            const defaultEnabled = provider ? provider.enabled : true;
+            row.innerHTML = `
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                    <label style="flex:1; font-size:0.85em;">Provider</label>
+                    <input type="checkbox" id="toggle_${Date.now()}" ${defaultEnabled ? 'checked' : ''}>
+                </div>
+                <input type="text" class="api-key-input" placeholder="Provider slug (e.g. openrouter)" value="${defaultName}">
+                <input type="text" class="api-key-input" placeholder="Model" value="${defaultModel}">
+                <input type="text" class="api-key-input" placeholder="API key env var (e.g. OPENROUTER_API_KEY)">
+                <button onclick="this.closest('.provider-editor-row').remove()" style="width:100%; margin-top:6px; background:#d9534f;">Remove</button>
+            `;
+            container.appendChild(row);
         }
 
         function loadApiKeys() {
-            fetch('/api/get-keys')
+            fetch('/api/get-providers')
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
-                        setKeyPlaceholder('openrouter_key', data.keys.OPENROUTER_API_KEY);
-                        setKeyPlaceholder('anthropic_key', data.keys.ANTHROPIC_API_KEY);
-                        setKeyPlaceholder('openai_key', data.keys.OPENAI_API_KEY);
-                        setKeyPlaceholder('google_key', data.keys.GOOGLE_API_KEY);
-                        setKeyPlaceholder('grok_key', data.keys.GROK_API_KEY);
-                        setKeyPlaceholder('nvidia_key', data.keys.NVIDIA_API_KEY);
+                        const container = document.getElementById('providerEditor');
+                        container.innerHTML = '';
+                        configuredProviders = data.providers || [];
+                        configuredProviders.forEach(provider => addProviderRow(provider));
                     }
                 });
         }
 
         function saveApiKeys() {
-            const keys = {
-                OPENROUTER_API_KEY: document.getElementById('openrouter_key').value,
-                ANTHROPIC_API_KEY: document.getElementById('anthropic_key').value,
-                OPENAI_API_KEY: document.getElementById('openai_key').value,
-                GOOGLE_API_KEY: document.getElementById('google_key').value,
-                GROK_API_KEY: document.getElementById('grok_key').value,
-                NVIDIA_API_KEY: document.getElementById('nvidia_key').value
-            };
-
-            fetch('/api/save-keys', {
+            const container = document.getElementById('providerEditor');
+            const rows = Array.from(container.querySelectorAll('.provider-editor-row'));
+            const providers = [];
+            rows.forEach(row => {
+                const textInputs = row.querySelectorAll('input[type="text"]');
+                const checkbox = row.querySelector('input[type="checkbox"]');
+                if (!textInputs.length) return;
+                const enabled = checkbox ? checkbox.checked : true;
+                const providerName = textInputs[0].value.trim();
+                const model = textInputs[1].value.trim();
+                const keyEnv = textInputs[2].value.trim();
+                if (providerName) {
+                    providers.push({provider: providerName, model, enabled, key_env: keyEnv});
+                }
+            });
+            const defaultProvider = document.getElementById('providerSelect')?.value || providers[0]?.provider || '';
+            const defaultModel = document.getElementById('modelSelect')?.value || providers[0]?.model || '';
+            fetch('/api/save-providers', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({keys: keys})
+                body: JSON.stringify({providers, default_provider: defaultProvider, default_model: defaultModel})
             })
             .then(r => r.json())
             .then(data => {
                 const status = document.getElementById('saveStatus');
                 if (data.success) {
                     status.className = 'save-status success';
-                    status.textContent = '✓ API keys saved successfully!';
+                    status.textContent = '✓ Providers saved successfully!';
                     loadProviders();
                     setTimeout(() => status.className = 'save-status', 3000);
                 } else {
@@ -767,53 +823,32 @@ def api_get_keys():
         return jsonify({"success": False, "error": str(e)})
 
 
-@app.route("/api/save-keys", methods=["POST"])
-def api_save_keys():
-    """Save API keys to .env file."""
+@app.route("/api/get-providers", methods=["GET"])
+def api_get_providers():
+    """Return persisted provider configuration."""
     try:
-        data = request.json
-        keys = data.get("keys", {})
+        config = load_config(AGENT_DIR)
+        providers = get_provider_configs(config)
+        return jsonify({"success": True, "providers": providers})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
-        env_path = AGENT_DIR / ".env"
 
-        # Read existing .env
-        existing_content = ""
-        if env_path.exists():
-            existing_content = env_path.read_text(encoding="utf-8")
-
-        # Update or add keys
-        lines = existing_content.split("\n")
-        updated_lines = []
-        updated_keys = set()
-
-        for line in lines:
-            if line.strip() and not line.startswith("#"):
-                key = line.split("=")[0].strip()
-                if key in keys:
-                    if keys[key]:  # New value provided - update it
-                        updated_lines.append(f"{key}={keys[key]}")
-                    else:  # Blank field - keep the existing value untouched
-                        updated_lines.append(line)
-                    updated_keys.add(key)
-                else:
-                    updated_lines.append(line)
-            else:
-                updated_lines.append(line)
-
-        # Add any new keys that weren't in the file
-        for key, value in keys.items():
-            if key not in updated_keys and value:
-                updated_lines.append(f"{key}={value}")
-
-        # Write back to file
-        new_content = "\n".join(updated_lines).strip() + "\n"
-        env_path.write_text(new_content, encoding="utf-8")
-
-        # Reload environment
-        from dotenv import load_dotenv
-        load_dotenv(env_path, override=True)
-
-        return jsonify({"success": True, "message": "API keys saved successfully"})
+@app.route("/api/save-providers", methods=["POST"])
+def api_save_providers():
+    """Save provider configuration and default selection to config.json."""
+    try:
+        data = request.json or {}
+        providers = data.get("providers", [])
+        default_provider = data.get("default_provider")
+        default_model = data.get("default_model")
+        config = load_config(AGENT_DIR)
+        save_provider_configs(config, providers, default_provider, default_model)
+        if default_provider:
+            os.environ["LLM_PROVIDER"] = default_provider
+        if default_model:
+            os.environ["LLM_MODEL"] = default_model
+        return jsonify({"success": True, "message": "Providers saved successfully"})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

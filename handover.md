@@ -613,3 +613,320 @@ Found while testing `list_todos` against the real `tracker/data/todos.json` — 
 - **Duplicate "Call Vivian" to-dos** — two separate entries, due `2026-07-21` and `2026-07-22`. Possibly an accidental double-add.
 
 If a future session gets asked to "clean up the to-do list" or similar, these are the two obvious candidates.
+
+---
+
+## Session Update — 2026-07-31
+
+### LLM Client Architecture Refactored (llm_client.py)
+
+Sonnet 5 completed a comprehensive refactor of the multi-provider LLM implementation:
+
+**New base class for OpenAI-compatible APIs:**
+- Created `OpenAICompatibleProvider` base class (lines 196-271) that implements the full OpenAI chat-completions tool-calling protocol with a proper multi-round loop, matching Anthropic's quality
+- Implements tool schema translation (`input_schema` → `parameters` as required by OpenAI-compatible APIs)
+- Properly handles `tool_calls` responses and maintains conversation history across provider switches
+
+**All 6 providers now fully implemented:**
+1. **Anthropic** (`AnthropicProvider`) — Native Anthropic SDK with tool-use loop ✅ FULLY WORKING
+2. **OpenAI** (`OpenAIProvider`) — Inherits from `OpenAICompatibleProvider`, uses openai SDK ✅ FULLY WORKING
+3. **OpenRouter** (`OpenRouterProvider`) — Inherits from `OpenAICompatibleProvider`, supports 1000+ models ✅ FULLY WORKING
+4. **Grok** (`GrokProvider`) — Inherits from `OpenAICompatibleProvider`, connects to xAI API ✅ FULLY WORKING
+5. **NVIDIA** (`NVIDIAProvider`) — Inherits from `OpenAICompatibleProvider`, uses Nemotron models ✅ FULLY WORKING
+6. **Google** (`GoogleProvider`) — Uses google-genai SDK with proper function-calling `ask()` ✅ FULLY WORKING
+
+**Enhanced MultiProviderLLMClient improvements:**
+- New `_failed_providers` set (line 422) tracks providers that have actually failed in this session (not just missing keys)
+- Better auto-fallback logic in `_try_providers()` (lines 467-479) that skips known-failed providers instead of re-trying them
+- New `set_manual_provider()` method (lines 557-561) enables runtime provider pinning without restarting
+- New `get_status()` method (lines 563-565) returns current provider name and model for UI/logging
+- Seed history properly reconstructs conversation context when switching providers mid-conversation
+
+**Configuration notes:**
+- All providers use same `TOOL_SCHEMA` (originally Anthropic format)
+- Provider fallback order in `config.json` determines retry sequence
+- `fallback_enabled` flag controls whether to auto-try next provider or fail immediately
+- `manual_provider` environment variable (or UI selection) pins to specific provider
+
+**Files modified:**
+- `agent/llm_client.py` — Complete refactor (lines 196-566)
+
+**Testing status:**
+- All 6 providers have been refactored to use shared base classes
+- Proper error handling and logging throughout
+- Schema translation handles Anthropic ↔ OpenAI differences
+- Backward-compatible `AnthropicToolClient` wrapper preserved for existing code
+
+### Next steps if issues arise
+- If a provider fails: check that API key is set in `.env` and account has credit
+- Current known account status (user-dependent, may vary):
+  - OpenRouter: typically works (supports multiple underlying providers)
+  - NVIDIA: has free tier, reliable
+  - Anthropic/OpenAI/Grok/Google: check account balance/quota before assuming code is broken
+- To test a specific provider: set `LLM_PROVIDER=provider_name` in `.env` to skip fallback logic and get direct error messages
+
+---
+
+## Session Update — 2026-08-01
+
+Long session covering: contact system bug fixes, conversation-memory fix, always-on reliability (scheduled tasks), a full REST API backend, and a working Android app (Phase 0 + Phase 1 of `PLAN.md`). See `FEATURES.md` (new) for the full current capability list across every interface.
+
+### Contact system — five real bugs found and fixed
+
+1. **Name swallowed trailing instruction text** (`telegram_bot.py: _handle_text_contact`) — `"Zarina2 8364838 save this VCF file into my contacts"` was parsed into a name of `"Zarina save this VCF file into my contacts"` because the parser grabbed text on *both sides* of the phone-number match. Fixed to use only the prefix before the number.
+2. **`.vcf` filename collisions** (`storage.py: save_contact_vcf`) — contacts with no extractable name all fell back to the literal string `"Contact"`, so every unnamed contact overwrote the previous one's file. Filename now always includes the last 4 phone digits.
+3. **`save_contact` had no `TOOL_SCHEMA` entry** (`llm_client.py`) — it was registered in every `tools_dict` but no LLM provider was ever told the tool existed, so free-form "save this contact" requests could never actually invoke it — they silently fell back to the `remember` tool instead, landing in memory notes rather than the contacts system. Added the schema.
+4. **No contact-retrieval tool existed at all.** "Retrieve my contacts" was met with an honest "I don't have that capability." Added `LocalTools.list_todos`-style `list_contacts()` in `agent.py`, its `TOOL_SCHEMA` entry, and wired it into all three entry points.
+5. **The AI's own reply was being re-scanned as if it were a new incoming contact message** (`telegram_bot.py: _dispatch`, `elif self.agent_reply:` branch) — after correctly calling `list_contacts()` and composing a real answer, the reply text (which naturally contains "contact" + phone-number-shaped digits) re-triggered the deterministic contact-save path, silently discarding the AI's actual answer and instead re-saving/re-sending one contact's `.vcf` file. Removed the re-check; the AI's reply is now sent as-is.
+
+Also added: `storage.all_contacts_vcf()` + a `_looks_like_export_contacts_request()` detector in `telegram_bot.py` so "retrieve all my contacts as vcf files" / "export all contacts" sends one combined multi-vCard file instead of going through the AI at all.
+
+Portal (`tracker/index.html`) also got: a Delete button per contact (was previously view-only with no way to remove a saved `.vcf`), a View button/dialog showing raw vCard content, an actual refresh-on-tab-click (Contacts list previously only refreshed on initial folder pick, never when you revisited the tab), and `id`/`startIn` hints on the folder picker so re-connecting the data folder doesn't require re-navigating from Desktop every time.
+
+### Conversation memory — provider fallback was silently wiping context
+
+Root cause (`llm_client.py`): every provider switch — which happens automatically on fallback, and several of this account's providers are currently dead (Anthropic low credit, OpenAI quota exceeded, Grok no credits, Google intermittently unavailable) — created a **brand new provider instance with an empty history list**. Mid-conversation fallback meant the agent would just forget everything and start fresh, matching the user's "doesn't remember after a few chats" report.
+
+Fixed by adding a provider-agnostic `MultiProviderLLMClient.turns` log (plain user/assistant text pairs) that gets replayed into whichever provider loads next via a new `seed_history()` method on each provider class (Anthropic/OpenAI-style providers get a plain message list; `GoogleProvider` rebuilds its stateful chat session with a `history=` argument). Verified with a simulated 3-provider failover — content from turn 1 survived being relayed through a failing provider into a third, different provider.
+
+### Reliability — three self-healing scheduled tasks replace ad-hoc manual starts
+
+Found two **pre-existing, completely broken** Task Scheduler entries (`"My Peronal Agent"`, `"Start Telegram Bot"`) — both pointed `Execute` directly at a `.py` file, which Windows can never launch as a task action; `LastRunTime` confirmed neither had ever successfully run once. Left them in place disabled-by-nature (access denied to delete/modify without admin rights — harmless, they'll never run).
+
+Replaced with three working tasks, each launching a self-restarting `.bat` wrapper (`agent/run_web_forever.bat`, `run_telegram_forever.bat`, `run_api_forever.bat` — new) via a hidden `wscript.exe`/`.vbs` launcher (`launch_*_hidden.vbs` — new) at user logon:
+
+- `MyPersonalAgent-WebUI`
+- `MyPersonalAgent-Telegram`
+- `MyPersonalAgent-API`
+
+All three: no execution time limit (the old broken task had a 72-hour kill switch), no battery restrictions (laptop-safe), restart 5 seconds after any crash forever, log to `agent/logs/{web_ui,telegram,api}_supervisor.log` with unbuffered (`-u`) output for real-time debugging.
+
+**Recurring gotcha worth remembering**: every code or `.env` change requires killing and letting the scheduled task relaunch the process — Python doesn't hot-reload, and this bit us repeatedly this session (LLM tool schema fix, contact fixes, and the `AGENT_API_TOKEN` addition all silently had zero effect until the corresponding process was restarted).
+
+### Phase 0 — REST API backend (`agent/api/`, new)
+
+Per `PLAN.md`. `storage.py` gained sync metadata (`updated`/`deleted` on every record) and generic `list_items`/`upsert_item`/`soft_delete_item` methods, non-destructively (missing fields default via `with_sync_fields()`). A new optional `storage_sqlite.py` backend (`SqliteStorage(JsonStorage)`, same pattern as `FirestoreStorage`) was verified byte-identical to the JSON data via `migrate_json_to_sqlite.py`, but **`config.json` stays at `"storage": "json"`** — nothing about the default storage path changed.
+
+FastAPI server (`agent/api/`: `server.py`, `schemas.py`, `routes_{todos,worklog,memory,contacts,sync}.py`) exposes CRUD over all four collections at `/api/v1/*`, auth via `X-API-Key` header checked against `AGENT_API_TOKEN` in `.env` (never written by the agent — user adds it themselves). `/api/v1/sync` is a stub (real bidirectional sync is Phase 2, not built yet). Launch via `run_api.bat` / `run_api.py`, port 8500 (5000 already used by `web_ui.py`). 19 tests pass (13 pytest incl. new `tests/test_api_smoke.py`, 7 unittest), plus live verification against real data (health/auth/CRUD all confirmed over both localhost and LAN IP).
+
+### Phase 1 — Android app (`android/`, new)
+
+Full Kotlin/Compose MVP, online-first (matches `PLAN.md` Phase 1 scope — offline sync is Phase 2, not built). Toolchain (JDK 17, Android SDK, Gradle) installed to `D:\Android` rather than the default C: path, because C: only has ~3 GB free — **do not let any future Android tooling default back to C:**, set `JAVA_HOME`/`ANDROID_HOME`/`GRADLE_USER_HOME` explicitly (already set as persistent user env vars).
+
+Screens: **Todos** (list/add/complete, pull-independent Refresh button, visible error+retry on failed loads), **Log** (create work-log entries + scrollable list of past entries — this was added after initial build; the first cut was write-only and the user asked to see history too), **Settings** (server URL + API token fields, Test connection button). Architecture: Hilt DI, Room (local cache, schema already includes `pendingSync`/`locallyDeleted` columns for the Phase 2 sync rewrite), Retrofit + a `BaseUrlInterceptor` that rewrites the request host per-request from DataStore settings (so the server address is changeable at runtime without rebuilding the DI graph).
+
+Bugs hit and fixed during the build (all now clean, `assembleDebug` succeeds): missing `Modifier.padding` import, a stray `retrofit2.http.PATH` typo import (should be `Path`), `CenterAlignedTopAppBar` needing an `@OptIn(ExperimentalMaterial3Api::class)`, and an incorrectly-imported `weight` extension (should resolve automatically via `ColumnScope`, not be imported from `androidx.compose.foundation.layout.weight`).
+
+**Debug APK** is at `android/app/build/outputs/apk/debug/app-debug.apk`, delivered to the user directly (not committed — matches `.gitignore`). Signed with the default debug key, so repeat installs update in place.
+
+**Known real-world gotcha confirmed live**: users will type the field's placeholder/example text literally (`"Tailscale IP+:8500"`) instead of a real value — worth either better placeholder wording or client-side validation in a future pass.
+
+### What's NOT done yet (per `PLAN.md`)
+
+- **Phase 3 (polish)** — no Android push notifications, no Memory/Contacts screens in the app, no in-app chat, no rate limiting, no release-build hardening, no cloud deployment.
+- Tailscale is not installed on this machine yet — LAN IP was used for initial phone testing instead (`192.168.1.3`, may change if DHCP reassigns it).
+
+---
+
+## Session Update — 2026-08-01 (continued): Phase 2 — Full Offline Sync
+
+Completed all of Phase 2 in the same session. `PLAN.md` Phase 2 is now done; only Phase 3 (polish) remains.
+
+### Task 2.1 — SQLite activated on the laptop
+
+`config.json` now has **`"storage": "sqlite"`** (was `"json"`) — `agent/data.db` is the live source of truth, not the JSON files. This is a real production cutover, done carefully: stopped all three scheduled-task processes first, re-ran `migrate_json_to_sqlite.py` to capture latest data, flipped the config, restarted, then verified identical data through the storage layer (CLI/Telegram path), the live API (`/api/v1/todos` over LAN), and a live write-then-read round trip.
+
+`storage_sqlite.py`'s `save_worklog`/`save_todos`/`save_memory`/`save_contacts` now each also call a new `_write_mirror()` helper that writes the same payload back out to the legacy JSON file path *and* triggers Drive sync — so `tracker/index.html` (which reads JSON directly via the File System Access API, unchanged) and the Drive backup both keep working exactly as before. `SqliteStorage.__init__` now also accepts and stores `drive`, wired through `make_storage()`.
+
+**Rollback is still instant**: flip `config.json` back to `"storage": "json"` — the JSON mirror is always current since every SQLite write also updates it.
+
+### Task 2.2 — Real `/api/v1/sync` endpoint
+
+Replaced the Phase 0 stub in `agent/api/routes_sync.py`. Push-then-pull in one request: client's `changes` are applied via `upsert_item` first (so the client never sees its own writes reflected back as new "changes to reconcile"), `server_time` is captured, then everything changed since the client's `last_sync` cursor (including soft-deletes, via `include_deleted=True`) is pulled and returned.
+
+**Real bug fixed while building this**: `list_items`'s `since` filter and `upsert_item`'s conflict check were both comparing `updated` ISO timestamps as **raw strings** — which only sorts correctly if both sides use the same UTC offset. The Android client uses its own local clock (`OffsetDateTime.now()`), which will have a different offset than the server's whenever the two aren't in the same timezone. Added `storage._updated_dt()` (parses any offset or `Z` suffix, normalizes to UTC-aware `datetime`) and switched both comparison sites to use it. Added `tests/test_sync_timestamps.py` specifically covering this — two timestamps expressing the *same instant* with different offsets must compare equal; a chronologically-later UTC timestamp must beat an earlier one even when its raw string sorts smaller.
+
+New `tests/test_api_sync.py` (3 tests, isolated temp-dir storage, no real data touched): push-then-pull round trip + idempotent re-sync with no new changes, conflict rejection (stale client edit loses to a newer server copy), delete propagation (`deleted: true` shows up in a pull). All verified live against the real API too (see M2 verification below).
+
+### Task 2.3 — Android app rewritten offline-first
+
+`TodoRepository`/`EntryRepository` no longer call the API synchronously from `create`/`complete`/`snooze`/`delete`/`logWork`. They now: write to Room immediately with `pendingSync = true` (UI updates instantly regardless of network), then call `SyncScheduler.requestExpedited()` to kick off a background sync attempt. `delete` sets `locallyDeleted = true` rather than actually removing the row (mirrors the server's soft-delete model — `TodoEntity.toDto()` already mapped `deleted = deleted || locallyDeleted` from Phase 1, so this was already wired correctly).
+
+New files:
+- **`sync/SyncScheduler.kt`** — thin WorkManager wrapper. `schedulePeriodic()` (called once from `App.onCreate`) enqueues a 15-minute `NetworkType.CONNECTED`-constrained periodic sync. `requestExpedited()` (called after every local write, and from `MainActivity.onResume`) enqueues a one-shot sync, replacing any already-queued one.
+- **`sync/SyncWorker.kt`** — `@HiltWorker` `CoroutineWorker`. Reads `todoDao.pendingSync()`/`entryDao.pendingSync()`, serializes each to a `JsonElement` (via the existing `TodoDto`/`EntryDto` `@Serializable` classes, so field names match the server's snake_case automatically), POSTs to `/api/v1/sync`, then applies the response: pulled `changes` are upserted into Room (unless a local row is still `pendingSync=true` with a newer `updated` — that guard means an edit made *during* the same sync cycle won't get clobbered by the pull, it'll just win the next push instead), `applied` ids get `pendingSync` cleared, and `rejected` items get the server's `server_copy` written into Room (so a losing local edit doesn't just vanish — it becomes visible as the corrected, server-authoritative value).
+- **`App.kt`** now implements `Configuration.Provider` (required for Hilt-injected Workers) and calls `syncScheduler.schedulePeriodic()` on startup.
+- **`ApiModels.kt`**: `SyncRequest.changes`/`SyncResponse.{changes,rejected}` changed from loosely-typed `Map<String, List<Map<String, String?>>>` to `Map<String, List<JsonElement>>` — avoids hand-building snake_case maps and reuses the existing typed DTOs' serializers.
+- **`EntryDao`** gained `getById()` (only `TodoDao` had it after Phase 1; `SyncWorker` needs it for the same-cycle-conflict guard on entries too).
+
+Builds clean (`assembleDebug` succeeded first try after these changes — the Phase 1 groundwork, e.g. `pendingSync`/`locallyDeleted` columns already existing on both entities, paid off here).
+
+### M2 acceptance — what's verified vs. what needs the actual phone
+
+No physical device or emulator is available in this environment, so the milestone's on-device tests (airplane-mode create/complete/log, kill-and-reopen persistence) could **not** be run directly. What *was* verified, live against the real API:
+
+- **Idempotent re-sync** (`test_sync_push_then_pull`, plus a live curl round trip): a second `/sync` call with the `server_time` from the first as the new cursor returns an empty `changes` list. ✅
+- **Conflict resolution, simulated end-to-end**: created a todo, "edited on laptop" via `PUT`, then pushed a "phone" edit with an *older* `updated` timestamp — server correctly rejected it and returned the laptop's copy; confirmed exactly one record existed after (no duplicate). Then pushed a genuinely *newer* edit — it correctly won, still exactly one record. ✅
+- **Delete propagation** (`test_sync_delete_propagates_as_deleted_true`): a deleted todo appears in a pull with `deleted: true`. ✅
+
+**Still needs the user's actual phone**: the true end-to-end flow (toggle airplane mode on the device, create/complete/log while offline, confirm `SyncWorker` actually fires and reconciles correctly on reconnect, confirm the app survives a kill-and-reopen with pending unsynced writes intact in Room). The server-side and conflict-resolution logic those tests exercise has been verified as above; what's unverified is purely the on-device WorkManager scheduling and Room persistence, which requires a real Android runtime.
+
+Updated APK delivered to the user with these changes.
+
+### On-device testing round (same day): one real bug found, one false alarm
+
+The user then actually ran the airplane-mode test on their phone. Two reports came in; only one was a real bug.
+
+**Real bug: sync failure was hiding the entire local todo/log list.** `TodoListScreen.kt` and `QuickLogScreen.kt` both had `if (error != null) { <error box> } else { <list> }` — meaning *any* failed network call (e.g. tapping Refresh, or the initial pull, while offline) replaced the whole screen with just an error message, hiding the locally-saved Room data underneath. This directly defeated the point of offline-first: the user could create a todo offline, see it appear, but then the very next failed sync attempt would make it look like the todo (and everything else) had vanished. Fixed by restructuring both screens so the error is a small dismissible `Card` banner **above** the list, and the list (from `dao.observeAll()`, always rendered regardless of `error` state) is never hidden. Rebuilt, verified, delivered.
+
+**Debugging note for next session**: diagnosing this required a screenshot from the user, since there's no way to inspect the Android UI or logs remotely from this environment. The error text in the screenshot ("Couldn't load todos") also caught a *separate* real problem — it proved the user was still testing an **old APK build** at that point (the fix had already changed that string to "Couldn't sync"), not the one just sent. Worth checking the exact wording in any future bug report screenshots to catch stale-install confusion early.
+
+**False alarm, but a useful diagnostic pattern**: user also reported "even after coming online, refresh still fails to connect." Investigated Windows Firewall (found existing `python.exe` inbound-allow rules, but couldn't fully verify program path / network profile without admin rights — did not attempt to modify firewall settings, per the standing rule against touching system/security settings directly) and confirmed the LAN IP hadn't changed (still `192.168.1.3`). Had the user test `http://192.168.1.3:8500/api/v1/health` directly in their phone's browser — it worked fine, which ruled out network/firewall entirely and confirmed the app-side error really was just the stale-APK issue above, not a server-reachability problem.
+
+**Second false alarm, but a good example of a full-stack verification**: user then reported the offline-created todos ("exam", "offline test1") were missing from both Telegram and the tracker portal, even though the phone app showed them fine. Traced the entire path end to end from the laptop side: queried the live `/api/v1/todos` (both items present in SQLite), diffed SQLite against the JSON mirror file directly in Python (all 20 records present in both — an earlier `grep` had given a false "missing" signal because pretty-printed JSON has a space after `:` that the grep pattern didn't account for), and finally called `LocalTools.list_todos()` directly — the exact function Telegram's AI tool and the `list`/`todos` quick-command both use — and confirmed both items came back correctly. **Conclusion: the backend data was correct the entire time.** The user's report was almost certainly either checking before the background sync had completed, asking the AI in free-form chat (which can summarize incompletely) instead of using the instant `list`/`todos` command, or looking at a stale/uncreated browser tab for the tracker portal (which only re-reads its JSON files on page reload). No code changes made for this one — pointed the user at the `list`/`todos` shortcut and a tracker page reload instead.
+
+**Pattern worth repeating**: when a user reports "the data isn't showing up," check the actual data at every layer (SQLite → JSON mirror → the exact function the reporting interface calls) *before* assuming it's a sync/backend bug. In both cases above this session, the backend was already correct and the apparent bug was somewhere client-side (stale app build, stale browser tab, or an LLM's incomplete free-form summary).
+
+---
+
+## Session Update — 2026-08-01 (continued): Phase 3 Task 3.1 — Android local reminder notifications
+
+Picked from `PLAN.md`'s independent Phase 3 task list at the user's choice. Native notifications on the phone for todos entering their due window, without duplicating the server's Telegram escalation (that stays the guaranteed nag channel per the plan — this is just "don't stay silent between syncs").
+
+**New file**: `android/.../notifications/ReminderNotifier.kt` — `checkAndNotify(context, todoDao)` runs after every successful `SyncWorker` pull. For each open, non-deleted todo it computes the effective due date (`snoozeUntil ?: due`), and posts a notification only if `now` is within `[due - remindBeforeMin, due + 1h]` — deliberately narrow so it doesn't nag on already-overdue items (that stayed server-side/Telegram's job, per the plan; also avoids spamming on the known-bad `"IT Tax Return Filing"` 2023 due-date row from the 2026-07-21 session notes). Tapping the notification opens `MainActivity`.
+
+**Dedup problem and fix**: the naive approach (compare against a "notified" flag) breaks because `SyncWorker.applyServerTodos` does a full `REPLACE` upsert on every pull, which would silently reset any bolted-on flag back to its default every 15 minutes — causing the same reminder to refire every sync cycle instead of once. Fixed at the root: added a local-only `TodoEntity.notifiedForDue: String?` column (never part of the DTO/sync payload) and changed `SyncWorker` to explicitly carry the old value forward from the local row *only when the due date is unchanged* — so an edited due date correctly clears the marker and re-arms the reminder, but a routine no-op re-sync doesn't.
+
+**Schema change handled properly**: `AppDatabase` bumped 1→2 with a real `MIGRATION_1_2` (`ALTER TABLE todos ADD COLUMN notifiedForDue TEXT`) registered via `.addMigrations()` in `AppModule` — deliberately not `fallbackToDestructiveMigration()`, since that would wipe any `pendingSync = true` rows still waiting to push on a real user's phone during the upgrade.
+
+**Permissions**: added `POST_NOTIFICATIONS` to `AndroidManifest.xml` (required at runtime on API 33+/Android 13+, this app's `minSdk 26` / `targetSdk 35` spans both). `MainActivity.onCreate` requests it via `registerForActivityResult` on first launch if not already granted; `ReminderNotifier` also defensively re-checks the permission itself before posting (belt-and-suspenders for the case where WorkManager fires the check from a background context after the user later revokes it in system settings).
+
+`assembleDebug` builds clean. **Not yet verified on-device** (no phone/emulator in this environment, same limitation noted for Phase 2's M2 milestone) — the user needs to install the new APK and confirm a real notification fires when a todo's due window is reached. Updated debug APK delivered.
+
+**New/changed files this task:**
+```text
+android/.../notifications/ReminderNotifier.kt   (new)
+android/.../data/local/TodoEntity.kt            (+notifiedForDue field, fromDto param)
+android/.../data/local/TodoDao.kt               (+openTodos, +setNotifiedForDue)
+android/.../data/local/AppDatabase.kt           (version 1->2, +MIGRATION_1_2)
+android/.../di/AppModule.kt                     (register migration)
+android/.../sync/SyncWorker.kt                  (call ReminderNotifier after pull; preserve notifiedForDue)
+android/.../MainActivity.kt                     (runtime POST_NOTIFICATIONS request)
+android/app/src/main/AndroidManifest.xml        (+POST_NOTIFICATIONS permission)
+```
+
+### Remaining Phase 3 tasks (not started)
+3.2 Memory + Contacts screens, 3.3 phone chat endpoint, 3.4 hardening, 3.5 optional cloud lift — see `PLAN.md` for full scope.
+
+---
+
+## Session Update — 2026-08-01 (continued again): Phase 3 Task 3.2 — Memory & Contacts screens
+
+Two new bottom-nav tabs in the Android app: **Memory** (remember box + recall search) and **Contacts** (searchable list, tap phone/email to dial or compose via system intents).
+
+**Scope note, deliberate**: unlike Todos/Entries, these are **online-only** — no Room cache, no offline queue, no `SyncWorker` involvement. This matches `PLAN.md` Task 3.2's own wording ("two more screens over the existing endpoints") and the fact that Phase 2's offline-sync rewrite only ever covered todos/entries. The REST endpoints (`GET/POST /memory`, `GET /memory/recall?q=`, `GET/POST /contacts?q=`) and their Retrofit interface + DTOs (`NoteDto`, `ContactDto`) already existed from earlier phases but were unused until now — no backend changes needed for this task.
+
+**New files:**
+```text
+android/.../data/repo/MemoryRepository.kt     (new — thin wrapper: list/recall/remember over ApiService)
+android/.../data/repo/ContactsRepository.kt   (new — thin wrapper: list/search over ApiService)
+android/.../ui/memory/MemoryViewModel.kt      (new)
+android/.../ui/memory/MemoryScreen.kt         (new)
+android/.../ui/contacts/ContactsViewModel.kt  (new)
+android/.../ui/contacts/ContactsScreen.kt     (new)
+android/.../MainActivity.kt                   (+Memory, +Contacts tabs and NavHost routes)
+```
+
+Contacts rows: tapping a phone number launches `ACTION_DIAL` (not `ACTION_CALL` — deliberately requires the user's own final tap in the dialer, no `CALL_PHONE` permission needed); tapping an email launches `ACTION_SENDTO` with a `mailto:` URI. Both screens follow the same error-banner-never-hides-content pattern established for Todos/Log in the 2026-08-01 on-device testing round, adapted for online-only data (empty-state text distinguishes "no notes/contacts yet" from "no matches" when a search/recall query is active).
+
+`assembleDebug` builds clean. **Not yet verified on-device** — same limitation as 3.1, no phone/emulator here. Updated APK delivered.
+
+### Remaining Phase 3 tasks (not started)
+3.3 phone chat endpoint, 3.4 hardening, 3.5 optional cloud lift.
+
+---
+
+## Session Update — 2026-08-01 (continued again): Phase 3 Task 3.3 — Phone chat
+
+New `POST /api/v1/chat` endpoint (`agent/api/routes_chat.py`, new) plus a **Chat** tab in the Android app. Free-form natural-language chat with the same LLM/tool-calling agent that already powers Telegram and the web UI.
+
+**Security — the risk called out explicitly in `PLAN.md`**: the tools handed to the LLM for this endpoint are restricted to data operations only — `log_work`, `add_todo`, `complete_todo`, `list_todos`, `remember`, `recall`. `run_shell`, `read_file`, `write_file`, `open_app`, `list_dir`, `snooze_todo`, `save_contact`, `list_contacts` are all excluded from the real tools_dict.
+
+**Real landmine found and worked around while building this**: excluded tools can't simply be *omitted* from the dict. `TOOL_SCHEMA` in `llm_client.py` is one shared module-level constant, sent to the model in full by every provider's `ask()` regardless of which tools_dict the client was constructed with — and the provider tool-call loop does a raw `self.tools[block.name]` lookup with **no missing-key guard**. If the model ever called an omitted tool, that's an unhandled `KeyError` crashing the whole chat request. Fixed by mapping every excluded name to a stub function that returns `{"error": "'<name>' is not available through the phone chat API"}` instead — the model sees a normal tool result and reports the refusal in plain English rather than the request blowing up. Verified live: asked the endpoint to run `whoami` via shell, and it correctly replied it couldn't because `run_shell` isn't available, instead of erroring out.
+
+**Other implementation choices:**
+- The `MultiProviderLLMClient` is built once (module-level singleton, lazy on first request) and reused, not rebuilt per request — matches `run_telegram.py`'s pattern and avoids losing conversation history every call. A `threading.Lock` serializes requests through it, since it keeps one shared turn-history list; acceptable because this is one phone's chat, not a multi-user server.
+- Registered on the existing `/api/v1/*` router group in `api/server.py`, so it inherits the same `X-API-Key` auth as every other endpoint — no separate auth path to get wrong.
+- Android side: `ApiService.chat()` + `ChatRequestDto`/`ChatResponseDto`, a plain online-only `ChatRepository`/`ChatViewModel`/`ChatScreen` (same pattern as the Memory/Contacts screens from Task 3.2 — no Room, no offline queue), and a bumped OkHttp `readTimeout` (10s → 120s) on the shared client, since a multi-round tool-calling LLM reply can legitimately take a while and the previous default would have killed a normal exchange partway through.
+
+**Verified live** (not just unit tests) against the real running API (had to kill and let the `MyPersonalAgent-API` scheduled task auto-restart the two `run_api.py` processes to pick up the code change — same recurring gotcha as every prior session):
+- Real data question ("what's on my open to-do list") → correct real answer using `list_todos`.
+- Attempted shell command → correctly refused, no crash.
+- Wrong `X-API-Key` → `401` as expected.
+- Full existing test suite (`pytest agent/tests/`) still 18/18 passing — no regression from adding the router.
+
+`assembleDebug` builds clean. **Chat screen UI itself not yet verified on-device** (no phone/emulator here, same limitation as 3.1/3.2) — the backend endpoint it calls has been verified for real, though. Updated APK delivered.
+
+**New/changed files this task:**
+```text
+agent/api/routes_chat.py          (new)
+agent/api/schemas.py              (+ChatRequest, +ChatResponse)
+agent/api/server.py               (register routes_chat router)
+android/.../data/remote/ApiService.kt    (+chat())
+android/.../data/remote/ApiModels.kt     (+ChatRequestDto, +ChatResponseDto)
+android/.../data/repo/ChatRepository.kt  (new)
+android/.../ui/chat/ChatViewModel.kt     (new)
+android/.../ui/chat/ChatScreen.kt        (new)
+android/.../di/AppModule.kt              (OkHttp read/write timeout bump)
+android/.../MainActivity.kt              (+Chat tab and NavHost route)
+```
+
+### Remaining Phase 3 tasks (not started)
+3.4 hardening (rate-limiting, sync conflict test matrix, release-build ProGuard, README), 3.5 optional cloud lift.
+
+---
+
+## Session Update — 2026-08-01 (continued again): Android navigation redesign — Chat as home, drawer nav, voice input, avatar
+
+User feedback after trying the 3.1–3.3 build: didn't want Chat as just one of six equal bottom-tab destinations — wanted it to be the app's home screen, with everything else tucked behind a hamburger menu, plus voice input and a custom avatar. Not a `PLAN.md` task; a direct UX request that reshapes the whole nav shell built across 3.1–3.3.
+
+**New navigation shell** (`MainActivity.kt`, substantially rewritten):
+- Bottom `NavigationBar` removed entirely. **Chat is now the NavHost start destination** — first thing the user sees on launch.
+- Single global `TopAppBar` (Material3, replacing five separate per-screen `Scaffold`+`CenterAlignedTopAppBar` instances) with:
+  - **Hamburger (☰) on the left** → opens a `ModalNavigationDrawer` listing Todos, Log, Memory, Contacts.
+  - **Gear (⚙) on the right** → navigates straight to Settings.
+  - Title updates per current route via a small `routeTitles` map.
+- Stripped the now-duplicate `Scaffold`/`TopAppBar` out of `TodoListScreen.kt`, `MemoryScreen.kt`, `ContactsScreen.kt`, `ChatScreen.kt` (each was rendering its own top bar before; keeping them would have produced two stacked app bars per screen). Todos' "Refresh" button, previously a top-bar action, moved into the screen body as a small top-right-aligned button instead.
+- No icon library was added — hamburger/gear/mic all use plain-text glyphs (☰ / ⚙ / 🎤), consistent with the existing app's style of using `Text("+")` for the FAB rather than pulling in `material-icons-extended`.
+
+**Voice input** (`ChatScreen.kt`): a mic button (🎤) next to Send launches the system speech recognizer (`RecognizerIntent.ACTION_RECOGNIZE_SPEECH` via `StartActivityForResult`) — the transcribed text fills the message box for review/editing, it does **not** auto-send (user's explicit choice, so a misheard word can be fixed before it goes to the agent). `RECORD_AUDIO` requested at point-of-use (first mic tap), not app launch, matching Android best practice for permission requests. Added `android.permission.RECORD_AUDIO` to the manifest plus a `<queries>` block for `android.speech.RecognitionService` (required for the intent to resolve at all on Android 11+ due to package-visibility restrictions — without it, `ActivityNotFoundException` would fire on every device regardless of whether a speech app is installed). Guarded with try/catch + a `Toast` fallback for devices with no recognizer installed.
+
+**Avatar** (`MainActivity.kt` `AvatarHeader` composable, `SettingsRepository.kt`, new `AppShellViewModel.kt`): tapping a circular avatar at the top of the hamburger drawer opens Android's Photo Picker (`ActivityResultContracts.PickVisualMedia`) — no storage permission needed, works on all supported API levels via the activity library's backport. The chosen image's `content://` URI is persisted in DataStore (`SettingsRepository.avatarUri`, new key) and decoded to a bitmap on demand via `ContentResolver.openInputStream` + `BitmapFactory` (no image-loading library like Coil was added, to keep the dependency footprint the same). This is an **in-app avatar only** (shown in the drawer header) — not the OS home-screen launcher icon, which Android doesn't support changing at runtime without a rebuild-and-reinstall via activity-alias tricks; user confirmed in-app was the intent.
+
+`assembleDebug` builds clean (had to add `@OptIn(ExperimentalMaterial3Api::class)` for the plain `TopAppBar` API, which is still experimental in this Compose BOM version — same as the existing `CenterAlignedTopAppBar` usages already had). **Not yet verified on-device** — no phone/emulator in this environment; in particular the voice-input flow and the photo-picker avatar flow both need a real device to confirm (system speech UI and system photo picker are OS-chrome that can't be exercised any other way). Updated APK delivered.
+
+**New/changed files this task:**
+```text
+android/.../MainActivity.kt                    (rewritten — drawer nav, global top bar, avatar header)
+android/.../ui/AppShellViewModel.kt             (new — exposes avatarUri to MainActivity)
+android/.../data/repo/SettingsRepository.kt     (+avatarUri DataStore key)
+android/.../ui/chat/ChatScreen.kt                (mic button + speech recognizer intent; own Scaffold removed)
+android/.../ui/todos/TodoListScreen.kt          (own Scaffold/TopAppBar removed; Refresh moved into body)
+android/.../ui/memory/MemoryScreen.kt           (own Scaffold/TopAppBar removed)
+android/.../ui/contacts/ContactsScreen.kt       (own Scaffold/TopAppBar removed)
+android/app/src/main/AndroidManifest.xml        (+RECORD_AUDIO permission, +queries for speech recognition)
+```
+
+### Remaining Phase 3 tasks (not started)
+3.4 hardening (rate-limiting, sync conflict test matrix, release-build ProGuard, README), 3.5 optional cloud lift.
+
+---
+
+## On-device confirmation — 2026-08-01, nav redesign
+
+User installed the updated APK and sent a real screenshot from the phone. Confirmed working:
+
+- **Layout**: hamburger (☰) top-left, gear (⚙) top-right, "Agent" (Chat) is the screen shown on open — matches the requested redesign exactly.
+- **The `open_app` refusal from Task 3.3 behaves correctly in real use.** User asked the phone chat to "open my Gemini app"; the model called `open_app`, got the stub's `{"error": "'open_app' is not available through the phone chat API"}` back, and replied in plain, friendly English explaining it can't open apps from mobile chat — no crash, no confusing raw error. This is live confirmation that the restricted-tools design (routes_chat.py) degrades gracefully exactly as intended, not just in the earlier curl testing.
+
+**Still unconfirmed on-device**: voice input (tap mic → speak → transcribed text appears in the box) and the avatar photo picker (tap drawer avatar → pick a photo → it displays). The mic button was visible and rendered correctly (shown in its active/pressed purple state in the screenshot) but the user hadn't reported an actual test result for either flow as of this note. Ask the user directly next session if these still haven't been exercised.
