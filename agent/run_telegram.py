@@ -57,6 +57,7 @@ def main() -> None:
         "list_contacts": tools.list_contacts,
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
+        "send_mail": tools.send_mail,
     }
     llm = MultiProviderLLMClient(
         config,

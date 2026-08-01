@@ -163,6 +163,28 @@ TOOL_SCHEMA = [
             "required": ["contact_name", "message"],
         },
     },
+    {
+        "name": "send_mail",
+        "description": (
+            "Send an email from one of the user's configured personal accounts (never a "
+            "work/corporate account - those are blocked outright). contact_or_address may be "
+            "a saved contact name or a raw email address. Two-step confirm-before-send: first "
+            "call without confirm (or confirm=false) to get a full preview to show the user; "
+            "only call again with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "account": {"type": "string", "description": "Which configured email_accounts key to send from."},
+                "contact_or_address": {"type": "string"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+                "cc": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["account", "contact_or_address", "subject", "body"],
+        },
+    },
 ]
 
 

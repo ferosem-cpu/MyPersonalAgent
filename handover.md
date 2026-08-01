@@ -1030,3 +1030,29 @@ agent/setup_telegram_user.py        (one-time interactive phone+code login, save
 - Full `pytest` suite still 18/18 passing.
 
 **What still needs the user:** get `TG_API_ID`/`TG_API_HASH` from https://my.telegram.org, add both to `agent/.env`, then run `agent/setup_telegram_user.py` once (interactive: phone number, SMS/app confirmation code, and 2FA password if one is set). Only then can a real DM be sent to confirm the full loop, per Milestone M5.
+
+### Phase 5.4 — Multi-account email (done, verified except a real send) — Phase 5 complete
+
+**New files:**
+```text
+agent/services/mailer.py         (send_email - Gmail API + SMTP fallback, blocklist enforced)
+agent/setup_gmail_account.py     (one-time per-account OAuth consent, reuses drive_credentials.json)
+```
+`config.json` gained two empty scaffolds: `"email_accounts": {}` and `"email_blocklist": []` - both empty until the user actually configures a real personal account, so this ships with zero behavior change until opted into. Gmail sending reuses the exact same OAuth client secret (`agent/drive_credentials.json`) as the existing Drive sync, just under a separate `gmail.send`-scoped consent per account, writing to its own `gmail_token_<key>.json` (gitignored). An `smtp` account type is also supported for non-Google personal addresses (`password_env` names an `.env` variable holding an app password - never stored in `config.json` itself).
+
+**Agent tool** `LocalTools.send_mail(account, contact_or_address, subject, body, cc=None, confirm=False)` - same two-step confirm-before-send shape as 5.2/5.3. `contact_or_address` accepts either a raw email (detected via regex) or a saved contact name resolved through `resolve_contact`. Wired into CLI/web/Telegram-bot; **registered-but-refused in `routes_chat.py`**.
+
+**The hard requirement from Ground Rule/PLAN_V2** - a corporate/DXC account must never be usable, as sender *or* recipient - is enforced in code, not just by never configuring it: `mailer.send_email()` checks `email_blocklist` (glob patterns, e.g. `*@dxc.com`) against both the sending account's address and every recipient (`to` and `cc`) before ever touching the network, and raises a clear `RuntimeError` if either matches.
+
+**Verified** with a direct isolated test (temp storage, two fake configured accounts - one clean, one deliberately `*@dxc.com`-blocked):
+- Contact not found → clean `not_found` status.
+- Draft path works identically whether given a raw email address or a contact name (both resolve to the same `confirm_required` preview with the correct `to`).
+- **Sender blocklist**: attempting to send *from* the blocked account with `confirm=true` was refused outright, before any send attempt.
+- **Recipient blocklist**: attempting to send *to* a `*@dxc.com` address from a clean account was also refused.
+- **Missing-token path**: `confirm=true` against an account with no real Gmail OAuth token yet fails with a clear, actionable message instead of a raw exception.
+- **Live phone-chat refusal**, same pattern as 5.2/5.3: asked the real running API to email Rose "Just send it" with an explicit account/subject/body - the model correctly reported `send_mail` as unavailable in that context and offered WhatsApp/Telegram as alternatives, never attempting the send.
+- Full `pytest` suite still 18/18.
+
+**PLAN_V2 Phase 5 (Communications Hub) is now fully built** (5.1-5.4). Every acceptance criterion that requires a real send (WhatsApp QR pairing + one message, Telegram login + one DM, Gmail OAuth consent + one email - PLAN_V2's Milestone M5) needs the user's own hands-on steps, which is unavoidable by design (Ground Rule 2's confirm-before-send, and none of these can be paired/authorized by an agent on the user's behalf). Everything code-side has been built, unit-verified in isolation, and live-verified for the safety-critical refusal path (phone chat can't reach any of the three tools) and, for WhatsApp specifically, verified end-to-end up to (but not including) the real pairing step.
+
+**What still needs the user for 5.4 specifically:** run `agent/setup_gmail_account.py <account_key> <email_address>` once per real personal Gmail account (reuses the Drive OAuth client, opens a browser consent screen), or add an `smtp`-type entry to `email_accounts` + the matching app-password env var for a non-Google account. Never add a corporate/DXC entry - and even if one were added by mistake, `email_blocklist` stops it being used as sender or recipient.

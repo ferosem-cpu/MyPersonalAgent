@@ -69,5 +69,7 @@
     "token_file": "drive_token.json"
   },
   "llm_provider": "google",
-  "llm_model": "gemini-3.5-flash"
+  "llm_model": "gemini-3.5-flash",
+  "email_accounts": {},
+  "email_blocklist": []
 }

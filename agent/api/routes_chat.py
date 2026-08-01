@@ -76,6 +76,7 @@ def _get_llm() -> MultiProviderLLMClient:
         # the remote phone chat endpoint (PLAN_V2 Ground Rule 3).
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
+        "send_mail": tools.send_mail,
     }
     restricted = {
         name: (fn if name in _ALLOWED_TOOLS else _refused(name))

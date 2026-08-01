@@ -357,6 +357,76 @@ class LocalTools:
         log_action("send_telegram_message", {"contact_name": contact_name, "confirm": True}, f"sent to {contact.get('name')}")
         return result
 
+    def send_mail(
+        self,
+        account: str,
+        contact_or_address: str,
+        subject: str,
+        body: str,
+        cc: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Same two-step confirm-before-send pattern. `contact_or_address` may be a
+        saved contact name (resolved via resolve_contact) or a raw email address."""
+        import re
+
+        from services.contacts_resolve import resolve_contact
+
+        if re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", contact_or_address):
+            to_address = contact_or_address
+            display_name = contact_or_address
+        else:
+            contact = resolve_contact(self.storage, contact_or_address)
+            if contact is None:
+                result = {"status": "not_found", "message": f"No contact matching '{contact_or_address}'."}
+                log_action("send_mail", {"contact_or_address": contact_or_address}, result["message"])
+                return result
+            if isinstance(contact, list):
+                result = {
+                    "status": "ambiguous",
+                    "candidates": [c.get("name") for c in contact],
+                    "message": "Multiple contacts match - ask the user which one they mean.",
+                }
+                log_action("send_mail", {"contact_or_address": contact_or_address}, "ambiguous")
+                return result
+            to_address = contact.get("email")
+            display_name = contact.get("name")
+            if not to_address:
+                result = {"status": "error", "message": f"{display_name} has no email address on file."}
+                log_action("send_mail", {"contact_or_address": contact_or_address}, result["message"])
+                return result
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "account": account,
+                "to": to_address,
+                "recipient_name": display_name,
+                "subject": subject,
+                "body": body,
+                "cc": cc,
+                "instruction": (
+                    "Show the full email preview (from account, to, subject, body, cc if any) "
+                    "to the user verbatim and ask them to confirm. Only call this tool again "
+                    "with confirm=true after they explicitly reply yes/send."
+                ),
+            }
+            log_action("send_mail", {"account": account, "to": to_address, "confirm": False}, "draft shown")
+            return result
+
+        from services.mailer import send_email
+
+        send_result = send_email(self.config, account, to_address, subject, body, cc)
+        self.storage.add_work_entry(
+            title=f"Email to {display_name}",
+            desc=f"Subject: {subject}",
+            project="comms",
+            minutes=0,
+        )
+        result = {"status": "sent", "to": to_address, **send_result}
+        log_action("send_mail", {"account": account, "to": to_address, "confirm": True}, f"sent to {to_address}")
+        return result
+
 
 def main() -> None:
     ensure_env()
@@ -388,6 +458,7 @@ def main() -> None:
         "list_contacts": tools.list_contacts,
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
+        "send_mail": tools.send_mail,
     }
 
     # Initialize multi-provider LLM client

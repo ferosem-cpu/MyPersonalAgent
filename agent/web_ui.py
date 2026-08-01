@@ -179,6 +179,7 @@ def initialize_llm(provider, model):
             "list_contacts": tools.list_contacts,
             "send_whatsapp_message": tools.send_whatsapp_message,
             "send_telegram_message": tools.send_telegram_message,
+            "send_mail": tools.send_mail,
         },
         manual_provider=provider
     )
