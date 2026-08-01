@@ -481,6 +481,43 @@ class LocalTools:
         log_action("drive_share_link", {"file_id": file_id, "confirm": True}, result.get("webViewLink", ""))
         return {"status": "shared", **result}
 
+    def add_to_shopping_list(self, item: str, qty: str = "") -> dict[str, Any]:
+        from services.food_assist import add_to_shopping_list as _add
+
+        result = _add(self.storage, item, qty)
+        log_action("add_to_shopping_list", {"item": item, "qty": qty}, item)
+        return result
+
+    def show_shopping_list(self) -> list[dict[str, Any]]:
+        from services.food_assist import show_shopping_list as _show
+
+        results = _show(self.storage)
+        log_action("show_shopping_list", {}, f"{len(results)} items")
+        return results
+
+    def clear_shopping_list(self) -> dict[str, Any]:
+        from services.food_assist import clear_shopping_list as _clear
+
+        count = _clear(self.storage)
+        log_action("clear_shopping_list", {}, f"cleared {count}")
+        return {"cleared": count}
+
+    def order_food(self, query: str, app: str = "swiggy") -> dict[str, Any]:
+        from services.food_assist import order_food as _order
+
+        result = _order(query, app)
+        platform_open_app(result["url"])
+        log_action("order_food", {"query": query, "app": app}, result["url"])
+        return result
+
+    def order_groceries(self, app: str = "blinkit") -> dict[str, Any]:
+        from services.food_assist import order_groceries as _order
+
+        result = _order(self.storage, app)
+        platform_open_app(result["url"])
+        log_action("order_groceries", {"app": app}, result["url"])
+        return result
+
 
 def main() -> None:
     ensure_env()
@@ -518,6 +555,11 @@ def main() -> None:
         "drive_upload": tools.drive_upload,
         "drive_download": tools.drive_download,
         "drive_share_link": tools.drive_share_link,
+        "add_to_shopping_list": tools.add_to_shopping_list,
+        "show_shopping_list": tools.show_shopping_list,
+        "clear_shopping_list": tools.clear_shopping_list,
+        "order_food": tools.order_food,
+        "order_groceries": tools.order_groceries,
     }
 
     # Initialize multi-provider LLM client

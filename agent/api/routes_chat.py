@@ -33,7 +33,12 @@ router = APIRouter(tags=["chat"])
 
 AGENT_DIR = Path(__file__).resolve().parent.parent
 
-_ALLOWED_TOOLS = {"log_work", "add_todo", "complete_todo", "list_todos", "remember", "recall"}
+_ALLOWED_TOOLS = {
+    "log_work", "add_todo", "complete_todo", "list_todos", "remember", "recall",
+    # Shopping-list tools are just tagged notes (same risk profile as remember/recall)
+    # and the whole point is managing the list from the phone - safe to allow.
+    "add_to_shopping_list", "show_shopping_list", "clear_shopping_list",
+}
 
 _lock = threading.Lock()
 _llm: MultiProviderLLMClient | None = None
@@ -84,6 +89,14 @@ def _get_llm() -> MultiProviderLLMClient:
         "drive_upload": tools.drive_upload,
         "drive_download": tools.drive_download,
         "drive_share_link": tools.drive_share_link,
+        "add_to_shopping_list": tools.add_to_shopping_list,
+        "show_shopping_list": tools.show_shopping_list,
+        "clear_shopping_list": tools.clear_shopping_list,
+        # order_food/order_groceries open a browser on THIS (laptop) machine regardless
+        # of caller - wrong behavior from a phone chat request, so kept refused here
+        # like open_app/open_url. The Android app does its own local deep-linking instead.
+        "order_food": tools.order_food,
+        "order_groceries": tools.order_groceries,
     }
     restricted = {
         name: (fn if name in _ALLOWED_TOOLS else _refused(name))

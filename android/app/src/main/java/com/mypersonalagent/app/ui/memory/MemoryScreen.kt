@@ -1,5 +1,10 @@
 package com.mypersonalagent.app.ui.memory
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mypersonalagent.app.data.remote.NoteDto
@@ -34,6 +40,8 @@ fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel()) {
     val notes by viewModel.notes.collectAsState()
     val error by viewModel.error.collectAsState()
     val loading by viewModel.loading.collectAsState()
+    val shoppingItems by viewModel.shoppingItems.collectAsState()
+    val context = LocalContext.current
 
     var query by remember { mutableStateOf("") }
     var newNote by remember { mutableStateOf("") }
@@ -59,6 +67,35 @@ fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel()) {
                     onClick = { viewModel.remember(newNote); newNote = "" },
                     modifier = Modifier.padding(top = 4.dp),
                 ) { Text("Save") }
+            }
+
+            // Shopping list is just notes tagged "shopping" (add via chat: "add milk to my
+            // shopping list") - this button is the local deep-link/clipboard fallback from
+            // PLAN_V2 Task 6.3, purely client-side, no server round-trip.
+            if (shoppingItems.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("Shopping list (${shoppingItems.size} items)", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            shoppingItems.joinToString(", ") { it.text },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Button(
+                            onClick = {
+                                val listText = shoppingItems.joinToString(", ") { it.text }
+                                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                                clipboard?.setPrimaryClip(ClipData.newPlainText("Shopping list", listText))
+                                Toast.makeText(context, "List copied - paste in search", Toast.LENGTH_LONG).show()
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://blinkit.com")).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.padding(top = 8.dp),
+                        ) { Text("🛒 Order groceries") }
+                    }
+                }
             }
 
             Row(

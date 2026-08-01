@@ -231,6 +231,43 @@ TOOL_SCHEMA = [
             "required": ["file_id"],
         },
     },
+    {
+        "name": "add_to_shopping_list",
+        "description": "Add an item to the shared shopping list (syncs to the phone automatically).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"item": {"type": "string"}, "qty": {"type": "string"}},
+            "required": ["item"],
+        },
+    },
+    {
+        "name": "show_shopping_list",
+        "description": "Show the current shopping list.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "clear_shopping_list",
+        "description": "Clear the entire shopping list (e.g. after an order is placed).",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "order_food",
+        "description": "Open a food delivery site/app search for the given query. Opens a browser on THIS machine, not the phone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}, "app": {"type": "string", "description": "swiggy or zomato"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "order_groceries",
+        "description": "Open a grocery app/site search prefilled with the current shopping list. Opens a browser on THIS machine, not the phone.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"app": {"type": "string", "description": "blinkit, bigbasket, or zepto"}},
+            "required": [],
+        },
+    },
 ]
 
 

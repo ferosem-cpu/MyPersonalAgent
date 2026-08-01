@@ -1101,3 +1101,44 @@ Full `pytest` suite still 18/18.
 
 ### Remaining Phase 6 tasks
 6.3 (food/grocery ordering assist) - last task before Phase 6 is done and this session pauses for Phase 7/8 per the user's instruction.
+
+---
+
+## Session Update — 2026-08-01 (same continuous session): Phase 6.3 — Food & grocery ordering assist. PLAN_V2 Phases 4-6 all complete.
+
+**Honest-scope note carried over from the plan itself**: none of Swiggy/Zomato/Blinkit/Zepto/BigBasket expose a public consumer ordering API, and automating checkout would touch payments (must always stay with the human) and break constantly against ToS. So this is **cart-assist**, not checkout automation - exactly as PLAN_V2 specified. The Playwright semi-automation stretch goal mentioned in the plan is **deliberately not built** - noted here as still deferred, would need separate explicit approval since it touches a real account's cart.
+
+**New file:** `agent/services/food_assist.py`:
+- `add_to_shopping_list(storage, item, qty="")` / `show_shopping_list(storage)` / `clear_shopping_list(storage)` - the shopping list is just notes tagged `"shopping"` through the existing `storage.py` memory collection. Zero schema change, and it syncs to the phone for free via the sync infrastructure already built in Phase 2 - the whole reason this approach was worth doing instead of a bespoke shopping-list feature.
+- `order_food(query, app="swiggy"|"zomato")` / `order_groceries(storage, app="blinkit"|"bigbasket"|"zepto")` - build a search URL for the given site and return it; `order_groceries` derives its query from the current shopping list (raises a clear error if the list is empty) rather than taking a free-form query, matching the plan's exact signature.
+- **Recurring groceries needed no new code**: the plan's "weekly recurring todo" requirement is already fully supported by the existing `add_todo`'s `recurrence` field (e.g. `add_todo("Grocery order - list ready", recurrence="weekly:MO")`) - just documenting that it works, not building anything new.
+
+**Agent tools** (`agent.py`): `add_to_shopping_list`, `show_shopping_list`, `clear_shopping_list`, `order_food`, `order_groceries` - the order_* tools call `platform_open_app(url)` to actually launch a browser **on the machine running the agent** (laptop for CLI/web/Telegram, which is the correct/expected behavior there).
+
+**Phone-chat routing split, deliberately not uniform** (`routes_chat.py`): the three shopping-list tools were added to `_ALLOWED_TOOLS` (same risk profile as `remember`/`recall`, and the whole point is managing the list from the phone) - but `order_food`/`order_groceries` were **kept excluded**, same treatment as `open_app`/`open_url` from Task 6.2, because they'd open a browser on the laptop regardless of which interface invoked them - confusing/wrong behavior if triggered from the phone. This is why the Android side (below) does its own local deep-linking instead of calling the server tool.
+
+**Android** (`MemoryViewModel.kt`, `MemoryScreen.kt`): `shoppingItems` is a `StateFlow` derived by filtering the already-loaded notes for the `"shopping"` tag - no new API call. A new card in the Memory screen shows the current list and a "🛒 Order groceries" button that is **purely local** (PLAN_V2's explicit design: "phone opens the app via deep link... fallback: open app + copy list to clipboard with a toast"): copies the joined list to the clipboard, shows a Toast telling the user to paste it, and launches `ACTION_VIEW` on Blinkit's URL (opens the installed app if it's registered as an Android App Link for that domain, otherwise falls back to the browser automatically - no branching logic needed for that, it's how Android intent resolution already works).
+
+**Verified live, not just written:**
+- Direct isolated test: added 2 items, `show_shopping_list` returned both, `order_groceries` built a URL with both items correctly URL-encoded into the query, `order_food` built a correct URL, `clear_shopping_list` removed both, and calling `order_groceries` again against the now-empty list raised the expected clear error instead of building a broken/empty-query URL.
+- **Live phone-chat test against the real running API and real data** (not a mock): asked it to "add paneer and bread to my shopping list, then show me the list" - correctly added both and listed them back. Then asked it to "order groceries from blinkit for me... just do it" - correctly refused `order_groceries` as unavailable through that interface, **but still successfully read the real shopping list via `show_shopping_list`** (which is allowed) to give a helpful answer, and offered to open Blinkit on the laptop instead - exactly the intended split behavior, and it correctly distinguished "your computer" from the phone in its own wording without being told to. Cleaned up the test items afterward via the same live chat interface (`"clear my shopping list"`).
+- Full `pytest` suite still 18/18. Android `assembleDebug` succeeds.
+
+**Not verified on-device**: the Memory screen's new grocery card/button and the actual `ACTION_VIEW`/clipboard/Toast behavior need a real phone (no emulator here). Updated APK delivered.
+
+---
+
+## PLAN_V2 Phases 4, 5, and 6 are now complete, as the user asked before pausing for Phase 7/8.
+
+Everything was committed and pushed to `github.com/ferosem-cpu/MyPersonalAgent` (`main`) incrementally, one task at a time, so any of these commits can be inspected or reverted independently:
+- Phase 4 (UI refresh): web UI, tracker, Android Material 3 - all skin-only, zero behavior change, live-verified where the tooling allowed.
+- Phase 5 (Communications Hub): WhatsApp bridge, Telegram user-session DMs, multi-account email - all with the same confirm-before-send pattern, all correctly excluded from the remote phone-chat endpoint, all verified live for their safe-refusal path; the actual send-a-real-message acceptance criteria need the user's own QR scan / Telethon login / Gmail OAuth consent.
+- Phase 6 (Deeper Integrations): Drive file tools (fully live-verified against the real account, including cleanup), app launching on both desktop and phone, and the shopping-list/grocery-assist feature (fully live-verified against real data on both the allowed and refused paths).
+
+**What's left, per the user's own request to pause here**: Phase 7 (Hardening - rate limiting, expanded sync conflict test matrix, release-build ProGuard, full README setup guide covering all the new services) and Phase 8 (Cloud lift). Both were already deferred in `PLAN.md`'s original Task 3.4/3.5 and stayed deferred through this whole session by design; nothing about that changed.
+
+**Setup steps that only the user can do, all queued and none blocking**, in one place for the next session:
+1. WhatsApp: generate `WA_BRIDGE_KEY`, add to `.env`, run `run_wa_bridge.bat`, scan the QR.
+2. Telegram: get `TG_API_ID`/`TG_API_HASH` from my.telegram.org, run `setup_telegram_user.py` once.
+3. Email: run `setup_gmail_account.py <name> <address>` per personal account (never a work/corporate one).
+4. Try the new Android features on a real device: nav redesign (already flagged last session), plus this session's Material 3 pass, app-alias "Open app" action, and the grocery-order button - none of these have been touched by a real touchscreen yet.

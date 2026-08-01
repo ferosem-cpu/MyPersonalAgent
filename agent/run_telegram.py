@@ -63,6 +63,11 @@ def main() -> None:
         "drive_upload": tools.drive_upload,
         "drive_download": tools.drive_download,
         "drive_share_link": tools.drive_share_link,
+        "add_to_shopping_list": tools.add_to_shopping_list,
+        "show_shopping_list": tools.show_shopping_list,
+        "clear_shopping_list": tools.clear_shopping_list,
+        "order_food": tools.order_food,
+        "order_groceries": tools.order_groceries,
     }
     llm = MultiProviderLLMClient(
         config,
