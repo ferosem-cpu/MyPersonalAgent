@@ -25,7 +25,12 @@ anything. You must show the recipient, their number/address, and the full messag
 the user verbatim and wait for their explicit yes/send reply. Only after that explicit
 confirmation may you call the same tool again with confirm=true to actually send. Never set
 confirm=true on the first call, never send without an explicit user reply, and never
-paraphrase or shorten the draft you show them."""
+paraphrase or shorten the draft you show them.
+
+drive_share_link follows the same confirm pattern for a different reason: it makes a
+Drive file public-by-link, which isn't reversible in effect (anyone with the link keeps
+access even if you change your mind later). Warn the user what confirming will do before
+calling it again with confirm=true."""
 
 TOOL_SCHEMA = [
     {
@@ -183,6 +188,42 @@ TOOL_SCHEMA = [
                 "confirm": {"type": "boolean"},
             },
             "required": ["account", "contact_or_address", "subject", "body"],
+        },
+    },
+    {
+        "name": "drive_search",
+        "description": "Search Google Drive by filename. Only sees files this app has itself uploaded or opened (drive.file scope), not the whole Drive.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+    },
+    {
+        "name": "drive_upload",
+        "description": "Upload a local file (from agent/uploads/ or an allowed path) to Google Drive. Returns the file id and a view link.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"local_path": {"type": "string"}, "folder_id": {"type": "string"}},
+            "required": ["local_path"],
+        },
+    },
+    {
+        "name": "drive_download",
+        "description": "Download a Drive file by id or by name (name search must match exactly one file) to a local path, defaulting under agent/uploads/.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"file_id_or_name": {"type": "string"}, "dest_path": {"type": "string"}},
+            "required": ["file_id_or_name", "dest_path"],
+        },
+    },
+    {
+        "name": "drive_share_link",
+        "description": (
+            "Make a Drive file readable by anyone with the link. Confirm-gated: first call "
+            "without confirm to get a warning, show it to the user, only call again with "
+            "confirm=true after they explicitly agree - this makes the file public-by-link."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"file_id": {"type": "string"}, "confirm": {"type": "boolean"}},
+            "required": ["file_id"],
         },
     },
 ]

@@ -1056,3 +1056,29 @@ agent/setup_gmail_account.py     (one-time per-account OAuth consent, reuses dri
 **PLAN_V2 Phase 5 (Communications Hub) is now fully built** (5.1-5.4). Every acceptance criterion that requires a real send (WhatsApp QR pairing + one message, Telegram login + one DM, Gmail OAuth consent + one email - PLAN_V2's Milestone M5) needs the user's own hands-on steps, which is unavoidable by design (Ground Rule 2's confirm-before-send, and none of these can be paired/authorized by an agent on the user's behalf). Everything code-side has been built, unit-verified in isolation, and live-verified for the safety-critical refusal path (phone chat can't reach any of the three tools) and, for WhatsApp specifically, verified end-to-end up to (but not including) the real pairing step.
 
 **What still needs the user for 5.4 specifically:** run `agent/setup_gmail_account.py <account_key> <email_address>` once per real personal Gmail account (reuses the Drive OAuth client, opens a browser consent screen), or add an `smtp`-type entry to `email_accounts` + the matching app-password env var for a non-Google account. Never add a corporate/DXC entry - and even if one were added by mistake, `email_blocklist` stops it being used as sender or recipient.
+
+---
+
+## Session Update — 2026-08-01 (same continuous session): Phase 6.1 — Google Drive file tools
+
+Unlike everything in Phase 5, **this task needed no new user setup at all** - Drive was already authorized from an earlier session (`agent/drive_token.json` exists), so I could verify it fully live against the real account, not just in isolation.
+
+**New file:** `agent/services/gdrive_files.py` - `drive_search(query)`, `drive_upload(local_path, folder_id=None)`, `drive_download(file_id_or_name, dest_path)` (accepts either a real file id or a name to search-then-resolve, erroring clearly if the name matches zero or more-than-one file), `drive_share_link(file_id)` (makes a file readable by anyone with the link - the caller gates this behind confirmation, see below). Reuses the exact same OAuth token/scope as the existing Drive mirror sync (`drive_sync.py`'s `SCOPES`, i.e. `drive.file`) - deliberately **not** widened to the broader `drive` scope, so search/download only ever see files this app itself created or opened, never the user's whole Drive. Widening that would need a fresh consent screen; documented as a known limitation rather than done, per the task's own guidance.
+
+**`drive_share_link` is confirm-gated**, same two-step pattern as the Phase 5 send tools, for a different reason: making a file public-by-link isn't reversible in effect (anyone who has the link keeps access even after the user changes their mind) - `SYSTEM_PROMPT` was extended with a short paragraph explaining why this one needs confirmation too, distinct from the outbound-messaging rationale.
+
+Wired all four tools into CLI/web/Telegram-bot tools_dicts, plus registered-but-refused in `routes_chat.py` - Drive tools can read/write/publish files, the same risk category as `read_file`/`write_file` which were already excluded from phone chat in Task 3.3, so the same restriction applies here for consistency, not because the plan explicitly demanded it.
+
+**Verified fully live against the real Google Drive account** (not a mock, not isolated storage):
+1. Uploaded a real small test file → got back a real Drive file id and `webViewLink`.
+2. `drive_search` found it by name.
+3. `drive_download` pulled it back down; compared bytes to the original - **byte-identical**.
+4. `drive_share_link` without `confirm` correctly returned the warning draft, not a real share.
+5. With `confirm=true`, it actually created the "anyone with the link" permission and returned a real `webViewLink`.
+6. **Opened that exact link in the browser tool** and confirmed the file's real content rendered - matches the plan's literal acceptance wording ("share link opens... "), about as close to an incognito check as this environment allows.
+7. Cleaned up afterward - deleted the test file from the user's real Drive so no stray public test file was left behind.
+
+Full `pytest` suite still 18/18.
+
+### Remaining Phase 6 tasks
+6.2 (app launching desktop + phone), 6.3 (food/grocery ordering assist).

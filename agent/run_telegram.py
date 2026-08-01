@@ -58,6 +58,10 @@ def main() -> None:
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
         "send_mail": tools.send_mail,
+        "drive_search": tools.drive_search,
+        "drive_upload": tools.drive_upload,
+        "drive_download": tools.drive_download,
+        "drive_share_link": tools.drive_share_link,
     }
     llm = MultiProviderLLMClient(
         config,

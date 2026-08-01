@@ -77,6 +77,12 @@ def _get_llm() -> MultiProviderLLMClient:
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
         "send_mail": tools.send_mail,
+        # Drive tools can read/write/publish files, same risk category as read_file/
+        # write_file above - excluded from phone chat by default for the same reason.
+        "drive_search": tools.drive_search,
+        "drive_upload": tools.drive_upload,
+        "drive_download": tools.drive_download,
+        "drive_share_link": tools.drive_share_link,
     }
     restricted = {
         name: (fn if name in _ALLOWED_TOOLS else _refused(name))

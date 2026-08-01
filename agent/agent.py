@@ -427,6 +427,48 @@ class LocalTools:
         log_action("send_mail", {"account": account, "to": to_address, "confirm": True}, f"sent to {to_address}")
         return result
 
+    def drive_search(self, query: str) -> list[dict[str, Any]]:
+        from services.gdrive_files import drive_search as _search
+
+        results = _search(self.config, query)
+        log_action("drive_search", {"query": query}, f"{len(results)} results")
+        return results
+
+    def drive_upload(self, local_path: str, folder_id: str | None = None) -> dict[str, Any]:
+        from services.gdrive_files import drive_upload as _upload
+
+        result = _upload(self.config, local_path, folder_id)
+        log_action("drive_upload", {"local_path": local_path}, result.get("name", ""))
+        return result
+
+    def drive_download(self, file_id_or_name: str, dest_path: str) -> dict[str, Any]:
+        from services.gdrive_files import drive_download as _download
+
+        result = _download(self.config, file_id_or_name, dest_path)
+        log_action("drive_download", {"file_id_or_name": file_id_or_name, "dest_path": dest_path}, result.get("path", ""))
+        return result
+
+    def drive_share_link(self, file_id: str, confirm: bool = False) -> dict[str, Any]:
+        """Confirm-gated (PLAN_V2 Task 6.1): a share link makes the file public-by-link,
+        which isn't undo-safe, so this needs the same explicit-yes pattern as sends."""
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "file_id": file_id,
+                "instruction": (
+                    "Creating this share link makes the file readable by anyone who has the "
+                    "link. Ask the user to confirm before proceeding, then call again with confirm=true."
+                ),
+            }
+            log_action("drive_share_link", {"file_id": file_id, "confirm": False}, "confirmation required")
+            return result
+
+        from services.gdrive_files import drive_share_link as _share
+
+        result = _share(self.config, file_id)
+        log_action("drive_share_link", {"file_id": file_id, "confirm": True}, result.get("webViewLink", ""))
+        return {"status": "shared", **result}
+
 
 def main() -> None:
     ensure_env()
@@ -459,6 +501,10 @@ def main() -> None:
         "send_whatsapp_message": tools.send_whatsapp_message,
         "send_telegram_message": tools.send_telegram_message,
         "send_mail": tools.send_mail,
+        "drive_search": tools.drive_search,
+        "drive_upload": tools.drive_upload,
+        "drive_download": tools.drive_download,
+        "drive_share_link": tools.drive_share_link,
     }
 
     # Initialize multi-provider LLM client
