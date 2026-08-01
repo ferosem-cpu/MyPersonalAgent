@@ -27,6 +27,8 @@ def create_contact(contact: Contact, s=Depends(get_storage)):
         telegram_user_id=contact.telegram_user_id,
         first_name=contact.first_name,
         last_name=contact.last_name,
+        whatsapp_number=contact.whatsapp_number,
+        email_accounts_note=contact.email_accounts_note,
     )
 
 

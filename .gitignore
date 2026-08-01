@@ -78,6 +78,15 @@ agent/contacts.json
 agent/contacts/
 agent/*.vcf
 
+# WhatsApp bridge (Node sidecar) - session auth + deps, never commit either
+agent/services/wa-bridge/node_modules/
+agent/services/wa-bridge/.wwebjs_auth/
+agent/services/wa-bridge/.wwebjs_cache/
+
+# Telethon user session (Task 5.3) and Gmail per-account OAuth tokens (Task 5.4)
+agent/tg_user.session
+agent/gmail_token_*.json
+
 # API credentials
 credentials.json
 token.json

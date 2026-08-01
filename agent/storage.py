@@ -130,6 +130,8 @@ class JsonStorage:
         telegram_user_id: str | int | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
+        whatsapp_number: str | None = None,
+        email_accounts_note: str | None = None,
     ) -> dict[str, Any]:
         data = self.contacts()
         contacts = data.setdefault("contacts", [])
@@ -152,6 +154,8 @@ class JsonStorage:
                 "phone_number": phone_number or None,
                 "email": email or None,
                 "telegram_user_id": str(telegram_user_id) if telegram_user_id is not None else None,
+                "whatsapp_number": whatsapp_number or None,
+                "email_accounts_note": email_accounts_note or None,
                 "created": now_iso(),
                 "updated": now_iso(),
                 "deleted": False,
@@ -167,6 +171,8 @@ class JsonStorage:
         existing["phone_number"] = phone_number or existing.get("phone_number")
         existing["email"] = email or existing.get("email")
         existing["telegram_user_id"] = str(telegram_user_id) if telegram_user_id is not None else existing.get("telegram_user_id")
+        existing["whatsapp_number"] = whatsapp_number or existing.get("whatsapp_number")
+        existing["email_accounts_note"] = email_accounts_note or existing.get("email_accounts_note")
         existing["updated"] = now_iso()
         existing.setdefault("deleted", False)
         self.save_contacts(data)

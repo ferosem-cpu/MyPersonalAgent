@@ -218,6 +218,8 @@ class LocalTools:
         telegram_user_id: str | int | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
+        whatsapp_number: str | None = None,
+        email_accounts_note: str | None = None,
     ) -> dict[str, Any]:
         contact = self.storage.add_contact(
             name=name,
@@ -226,6 +228,8 @@ class LocalTools:
             telegram_user_id=telegram_user_id,
             first_name=first_name,
             last_name=last_name,
+            whatsapp_number=whatsapp_number,
+            email_accounts_note=email_accounts_note,
         )
         log_action("save_contact", contact, name)
         return contact
@@ -240,6 +244,64 @@ class LocalTools:
             ]
         log_action("list_contacts", {"query": query}, f"{len(contacts)} results")
         return contacts
+
+    def send_whatsapp_message(self, contact_name: str, message: str, confirm: bool = False) -> dict[str, Any]:
+        """Two-step confirm-before-send (PLAN_V2 Ground Rule 2).
+
+        Call 1 (confirm=False, the default): resolves the contact and returns a
+        draft for the model to show the user verbatim, asking them to confirm.
+        Call 2 (confirm=True): only after the user has explicitly agreed, actually
+        sends via the WhatsApp bridge and logs the send to the worklog.
+        """
+        from services.contacts_resolve import resolve_contact, whatsapp_number_for
+
+        contact = resolve_contact(self.storage, contact_name)
+        if contact is None:
+            result = {"status": "not_found", "message": f"No contact matching '{contact_name}'."}
+            log_action("send_whatsapp_message", {"contact_name": contact_name}, result["message"])
+            return result
+        if isinstance(contact, list):
+            result = {
+                "status": "ambiguous",
+                "candidates": [c.get("name") for c in contact],
+                "message": "Multiple contacts match - ask the user which one they mean.",
+            }
+            log_action("send_whatsapp_message", {"contact_name": contact_name}, "ambiguous")
+            return result
+
+        number = whatsapp_number_for(contact)
+        if not number:
+            result = {"status": "error", "message": f"{contact.get('name')} has no phone/WhatsApp number on file."}
+            log_action("send_whatsapp_message", {"contact_name": contact_name}, result["message"])
+            return result
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "contact": contact.get("name"),
+                "number": number,
+                "message_text": message,
+                "instruction": (
+                    "Show the recipient name, number, and full message text to the user verbatim "
+                    "and ask them to confirm. Only call this tool again with confirm=true after "
+                    "they explicitly reply yes/send. Never send without that explicit confirmation."
+                ),
+            }
+            log_action("send_whatsapp_message", {"contact_name": contact_name, "confirm": False}, "draft shown")
+            return result
+
+        from services.whatsapp import send_whatsapp
+
+        send_result = send_whatsapp(number, message)
+        self.storage.add_work_entry(
+            title=f"WhatsApp to {contact.get('name')}",
+            desc=message,
+            project="comms",
+            minutes=0,
+        )
+        result = {"status": "sent", "contact": contact.get("name"), "number": number, **send_result}
+        log_action("send_whatsapp_message", {"contact_name": contact_name, "confirm": True}, f"sent to {contact.get('name')}")
+        return result
 
 
 def main() -> None:
@@ -270,6 +332,7 @@ def main() -> None:
         "recall": tools.recall,
         "save_contact": tools.save_contact,
         "list_contacts": tools.list_contacts,
+        "send_whatsapp_message": tools.send_whatsapp_message,
     }
 
     # Initialize multi-provider LLM client

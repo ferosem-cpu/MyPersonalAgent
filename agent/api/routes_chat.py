@@ -71,6 +71,10 @@ def _get_llm() -> MultiProviderLLMClient:
         "recall": tools.recall,
         "save_contact": tools.save_contact,
         "list_contacts": tools.list_contacts,
+        # Registered so it gets the _refused() stub below (see module docstring) -
+        # never bound to the real tools.send_whatsapp_message. Outbound-comms tools
+        # are never exposed to the remote phone chat endpoint (PLAN_V2 Ground Rule 3).
+        "send_whatsapp_message": tools.send_whatsapp_message,
     }
     restricted = {
         name: (fn if name in _ALLOWED_TOOLS else _refused(name))

@@ -55,6 +55,7 @@ def main() -> None:
         "recall": tools.recall,
         "save_contact": tools.save_contact,
         "list_contacts": tools.list_contacts,
+        "send_whatsapp_message": tools.send_whatsapp_message,
     }
     llm = MultiProviderLLMClient(
         config,

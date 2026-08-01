@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>WhatsApp Setup - MyPersonalAgent</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <div>
+                <h1>WhatsApp Pairing</h1>
+                <p>One-time QR pairing for the local WhatsApp bridge (Task 5.2)</p>
+            </div>
+        </div>
+        <div class="main" style="justify-content: center;">
+            <div class="panel" style="max-width: 420px; text-align: center;">
+                <h2 id="statusHeading">Checking bridge status...</h2>
+                <div id="qrContainer" style="margin: 16px 0;"></div>
+                <p class="meta" id="helpText"></p>
+                <button onclick="refresh()">Refresh</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function refresh() {
+            const heading = document.getElementById('statusHeading');
+            const help = document.getElementById('helpText');
+            const qrContainer = document.getElementById('qrContainer');
+            qrContainer.innerHTML = '';
+
+            try {
+                const statusResp = await fetch('/api/whatsapp/status');
+                const status = await statusResp.json();
+                if (!status.success) {
+                    heading.textContent = 'Bridge not reachable';
+                    help.textContent = status.error;
+                    return;
+                }
+                if (status.ready) {
+                    heading.textContent = '✓ Paired and connected';
+                    help.textContent = 'The agent can now send WhatsApp messages (with your confirmation each time).';
+                    return;
+                }
+                heading.textContent = 'Waiting for pairing...';
+                help.textContent = 'Open WhatsApp on your phone → Settings → Linked Devices → Link a Device, then scan this code.';
+
+                const qrResp = await fetch('/api/whatsapp/qr');
+                const qrData = await qrResp.json();
+                if (qrData.success && qrData.qr) {
+                    const img = document.createElement('img');
+                    img.src = qrData.qr;
+                    img.alt = 'WhatsApp pairing QR code';
+                    img.style.maxWidth = '280px';
+                    qrContainer.appendChild(img);
+                } else if (qrData.success) {
+                    help.textContent = 'No QR available yet - the bridge may still be starting. Try Refresh in a few seconds.';
+                } else {
+                    help.textContent = qrData.error;
+                }
+            } catch (err) {
+                heading.textContent = 'Error';
+                help.textContent = err.message;
+            }
+        }
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>

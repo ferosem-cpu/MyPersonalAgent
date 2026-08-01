@@ -50,6 +50,10 @@ class Contact(BaseModel):
     phone_number: str | None = None
     email: str | None = None
     telegram_user_id: str | None = None
+    # Optional, backward compatible (PLAN_V2 Task 5.1): whatsapp_number defaults to
+    # phone_number when unset (see services/contacts_resolve.whatsapp_number_for).
+    whatsapp_number: str | None = None
+    email_accounts_note: str | None = None
     created: str | None = None
     updated: str | None = None
     deleted: bool = False

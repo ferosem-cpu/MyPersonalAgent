@@ -16,7 +16,16 @@ AGENT_DIR = Path(__file__).resolve().parent
 load_dotenv(AGENT_DIR / ".env")
 
 SYSTEM_PROMPT = """You are a local personal agent. Use tools for file, shell, app, web, worklog, todo, and memory tasks.
-Keep answers concise. Never call destructive shell/file actions without relying on the tool confirmation gate."""
+Keep answers concise. Never call destructive shell/file actions without relying on the tool confirmation gate.
+
+Outbound-communication tools (send_whatsapp_message, and any future send_telegram_message /
+send_mail) are two-step and confirm-before-send: your first call omits confirm (or passes
+confirm=false), which only resolves the contact and returns a draft - it does NOT send
+anything. You must show the recipient, their number/address, and the full message text to
+the user verbatim and wait for their explicit yes/send reply. Only after that explicit
+confirmation may you call the same tool again with confirm=true to actually send. Never set
+confirm=true on the first call, never send without an explicit user reply, and never
+paraphrase or shorten the draft you show them."""
 
 TOOL_SCHEMA = [
     {
@@ -117,6 +126,23 @@ TOOL_SCHEMA = [
         "name": "list_contacts",
         "description": "List saved contacts, optionally filtered by a name/phone-number search query.",
         "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": []},
+    },
+    {
+        "name": "send_whatsapp_message",
+        "description": (
+            "Send a WhatsApp message to a saved contact by name, via the local WhatsApp bridge. "
+            "Two-step confirm-before-send: first call without confirm (or confirm=false) to get a "
+            "draft to show the user; only call again with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_name": {"type": "string"},
+                "message": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["contact_name", "message"],
+        },
     },
 ]
 

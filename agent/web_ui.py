@@ -177,6 +177,7 @@ def initialize_llm(provider, model):
             "recall": tools.recall,
             "save_contact": tools.save_contact,
             "list_contacts": tools.list_contacts,
+            "send_whatsapp_message": tools.send_whatsapp_message,
         },
         manual_provider=provider
     )
@@ -273,6 +274,32 @@ def api_get_providers():
         config = load_config(AGENT_DIR)
         providers = get_provider_configs(config)
         return jsonify({"success": True, "providers": providers})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/whatsapp-setup")
+def whatsapp_setup():
+    """QR pairing page for the WhatsApp bridge (PLAN_V2 Task 5.2)."""
+    return render_template("whatsapp_setup.html")
+
+
+@app.route("/api/whatsapp/status", methods=["GET"])
+def api_whatsapp_status():
+    """Proxies the bridge's /status - keeps WA_BRIDGE_KEY server-side, never sent to the browser."""
+    from services.whatsapp import wa_status
+    try:
+        return jsonify({"success": True, **wa_status()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/api/whatsapp/qr", methods=["GET"])
+def api_whatsapp_qr():
+    from services.whatsapp import wa_qr
+    try:
+        qr = wa_qr()
+        return jsonify({"success": True, "qr": qr})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 

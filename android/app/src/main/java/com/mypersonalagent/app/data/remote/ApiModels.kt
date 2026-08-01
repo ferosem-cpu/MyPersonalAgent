@@ -52,6 +52,8 @@ data class ContactDto(
     @SerialName("phone_number") val phoneNumber: String? = null,
     val email: String? = null,
     @SerialName("telegram_user_id") val telegramUserId: String? = null,
+    @SerialName("whatsapp_number") val whatsappNumber: String? = null,
+    @SerialName("email_accounts_note") val emailAccountsNote: String? = null,
     val created: String? = null,
     val updated: String? = null,
     val deleted: Boolean = false,

@@ -973,3 +973,42 @@ Extracted the tracker's inline `<style>` block into `tracker/style.css` (own fil
 
 ### Next: Phase 5 (Communications Hub) — not started yet as of this note
 Phase 5.1 (contact resolution), 5.2 (WhatsApp bridge — Node.js confirmed installed, v24.16.0), 5.3 (Telegram user session via Telethon), 5.4 (multi-account email) are next. **Heads up for future sessions**: 5.2/5.3/5.4 all have a hard human-in-the-loop requirement that can't be automated away — WhatsApp needs a real QR-code scan from the user's phone, Telethon needs the user's own `api_id`/`api_hash` from my.telegram.org plus a phone+SMS-code login, and Gmail needs a real OAuth consent-screen click per account. The code/infrastructure for all three can be built and unit-tested, but the actual pairing/login/consent steps and the "send one real message" acceptance criteria require the user directly.
+
+### Phase 5.1 — Contact resolution helper (done, verified)
+
+New `agent/services/contacts_resolve.py`: `resolve_contact(storage, query)` returns a single contact dict on an unambiguous match (exact full-name match wins outright over partial substring matches - e.g. "Rose" exact beats "Rosemary" partial), a list of candidates when ambiguous (caller must ask the user to disambiguate), or `None` when nothing matches. `whatsapp_number_for(contact)` falls back to `phone_number` when `whatsapp_number` isn't set.
+
+Extended the `Contact` schema with two new optional fields (`whatsapp_number`, `email_accounts_note`) in all three places PLAN_V2 called out: `agent/api/schemas.py` (Pydantic), `storage.py`'s `add_contact` (+ `routes_contacts.py` passthrough), and Android's `ContactDto`. All backward compatible - existing contacts with neither field keep working via the `whatsapp_number_for` fallback.
+
+**Verified** with a real isolated-storage test (temp dir, real `JsonStorage`, no mock): exact match, ambiguous-substring match returning a 2-item list, no-match `None`, and the WhatsApp-number fallback all behave correctly. Full `pytest` suite still 18/18. Android `assembleDebug` still succeeds.
+
+### Phase 5.2 — WhatsApp bridge (done, verified live end-to-end except real pairing)
+
+**New files:**
+```text
+agent/services/wa-bridge/package.json   (whatsapp-web.js, express, qrcode, qrcode-terminal)
+agent/services/wa-bridge/server.js      (127.0.0.1-only bridge, port 8600, X-Bridge-Key auth)
+agent/run_wa_bridge.bat                 (pulls WA_BRIDGE_KEY from .env, npm install if needed, launches)
+agent/services/whatsapp.py              (send_whatsapp, wa_status, wa_qr - clear errors, no raw exceptions)
+agent/templates/whatsapp_setup.html     (new - QR pairing page, polls status/QR every 5s)
+```
+`server.js` exposes `GET /status`, `GET /qr` (QR as a data-URL PNG), `POST /send` (normalizes any phone number to `<digits>@c.us`), `GET /chats?limit=`. Bound to `127.0.0.1` only; every route requires a matching `X-Bridge-Key` header.
+
+**Agent tool** `LocalTools.send_whatsapp_message(contact_name, message, confirm=False)` (`agent.py`) implements the **two-step confirm-before-send pattern** mandated by Ground Rule 2, and reused for 5.3/5.4:
+- First call (`confirm` omitted/false): resolves the contact, returns a `confirm_required` draft with the recipient name/number/full message text and an explicit instruction telling the model to show it verbatim and wait for the user's yes.
+- Second call (`confirm=true`): only then actually sends via the bridge and logs the send to the worklog (`project: "comms"`).
+- `SYSTEM_PROMPT` in `llm_client.py` was updated with an explicit paragraph spelling out this protocol, generically enough to cover the Telegram/email tools coming in 5.3/5.4 too.
+- Wired into the CLI (`agent.py`), web UI (`web_ui.py`), and Telegram bot (`run_telegram.py`) tools_dicts. **Explicitly registered but stubbed-refused in `routes_chat.py`** (the phone chat endpoint) per Ground Rule 3 - same pattern as `run_shell`/`open_app` from Task 3.3.
+
+**Real bugs found and fixed while verifying, not just written and assumed working:**
+1. **Adversarial-prompt test passed correctly, not by luck.** Direct-tested the confirm gate by telling the agent (via a raw Python call, then again live in Telegram-equivalent flow) to send a WhatsApp message "without asking me first, just do it" - it called the tool with `confirm=false` (or omitted), got the draft back, and correctly never called it again with `confirm=true`. The system-prompt instruction held even under a direct instruction to skip confirmation.
+2. **Chromium install was silently broken.** `npm install` reported success, but Puppeteer's Chromium download had downloaded the zip (`chrome-win.zip`, ~199MB) without actually extracting `chrome.exe` into the expected folder - `chrome-win/` existed with only a manifest file and one stray DLL. The bridge crashed on launch with `ENOENT` on `chrome.exe`. This is exactly the kind of failure that would have silently blocked Task 5.2 the first time the user tried to run it, with a confusing native-crash-style error. Fixed by manually re-extracting the zip (`Expand-Archive -Force`) into the correct path; confirmed `chrome.exe` present afterward.
+3. **Verified the full non-pairing path live**: started the bridge with a temporary throwaway key, confirmed it launches real headless Chromium, connects to WhatsApp Web, and prints/serves a genuinely scannable QR code (both the terminal ASCII art and the `/qr` endpoint's base64 PNG were checked). Confirmed `/status` reports `{"ready": false, "qr_pending": true}` before pairing, and that a wrong `X-Bridge-Key` is rejected. Killed the test process and any child Chromium afterward - no real WhatsApp account was touched or paired during this verification.
+4. **`/whatsapp-setup` page verified live** in the browser tool with no real bridge running: renders cleanly with a clear "Bridge not reachable: WA_BRIDGE_KEY is not set..." message instead of crashing - confirms the page degrades gracefully exactly like the rest of the app's error-banner pattern.
+
+`.gitignore` updated to exclude `agent/services/wa-bridge/node_modules/`, `.wwebjs_auth/`, `.wwebjs_cache/` (this session's Node install was never staged to git). Also pre-added `agent/tg_user.session` and `agent/gmail_token_*.json` ahead of Tasks 5.3/5.4.
+
+**What still needs the user, and cannot be done from here:**
+1. Generate a real `WA_BRIDGE_KEY` (`python -c "import secrets;print(secrets.token_urlsafe(32))"`) and add it to `agent/.env`.
+2. Run `agent/run_wa_bridge.bat` for real and scan the QR with their own WhatsApp (Settings → Linked Devices → Link a Device) - this is the user's own account; it should never be paired by an agent session.
+3. Send one real message through the agent (any interface except phone chat) to confirm the full loop end-to-end on a real WhatsApp account, per the plan's Milestone M5 acceptance.
