@@ -14,3 +14,4 @@ flask>=3.0.0
 fastapi>=0.115
 uvicorn[standard]>=0.30
 pydantic>=2.7
+telethon>=1.36.0

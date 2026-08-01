@@ -303,6 +303,60 @@ class LocalTools:
         log_action("send_whatsapp_message", {"contact_name": contact_name, "confirm": True}, f"sent to {contact.get('name')}")
         return result
 
+    def send_telegram_message(self, contact_name: str, message: str, confirm: bool = False) -> dict[str, Any]:
+        """Same two-step confirm-before-send pattern as send_whatsapp_message. Uses the
+        user's own Telegram account via Telethon (services/telegram_user.py) - this can
+        message any Telegram user, not just ones who've started the bot."""
+        from services.contacts_resolve import resolve_contact
+
+        contact = resolve_contact(self.storage, contact_name)
+        if contact is None:
+            result = {"status": "not_found", "message": f"No contact matching '{contact_name}'."}
+            log_action("send_telegram_message", {"contact_name": contact_name}, result["message"])
+            return result
+        if isinstance(contact, list):
+            result = {
+                "status": "ambiguous",
+                "candidates": [c.get("name") for c in contact],
+                "message": "Multiple contacts match - ask the user which one they mean.",
+            }
+            log_action("send_telegram_message", {"contact_name": contact_name}, "ambiguous")
+            return result
+
+        target = contact.get("phone_number") or contact.get("telegram_user_id")
+        if not target:
+            result = {"status": "error", "message": f"{contact.get('name')} has no phone number or Telegram ID on file."}
+            log_action("send_telegram_message", {"contact_name": contact_name}, result["message"])
+            return result
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "contact": contact.get("name"),
+                "target": target,
+                "message_text": message,
+                "instruction": (
+                    "Show the recipient name, target, and full message text to the user verbatim "
+                    "and ask them to confirm. Only call this tool again with confirm=true after "
+                    "they explicitly reply yes/send. Never send without that explicit confirmation."
+                ),
+            }
+            log_action("send_telegram_message", {"contact_name": contact_name, "confirm": False}, "draft shown")
+            return result
+
+        from services.telegram_user import send_telegram_dm
+
+        send_result = send_telegram_dm(str(target), message)
+        self.storage.add_work_entry(
+            title=f"Telegram DM to {contact.get('name')}",
+            desc=message,
+            project="comms",
+            minutes=0,
+        )
+        result = {"status": "sent", "contact": contact.get("name"), **send_result}
+        log_action("send_telegram_message", {"contact_name": contact_name, "confirm": True}, f"sent to {contact.get('name')}")
+        return result
+
 
 def main() -> None:
     ensure_env()
@@ -333,6 +387,7 @@ def main() -> None:
         "save_contact": tools.save_contact,
         "list_contacts": tools.list_contacts,
         "send_whatsapp_message": tools.send_whatsapp_message,
+        "send_telegram_message": tools.send_telegram_message,
     }
 
     # Initialize multi-provider LLM client

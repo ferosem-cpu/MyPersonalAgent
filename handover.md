@@ -1012,3 +1012,21 @@ agent/templates/whatsapp_setup.html     (new - QR pairing page, polls status/QR 
 1. Generate a real `WA_BRIDGE_KEY` (`python -c "import secrets;print(secrets.token_urlsafe(32))"`) and add it to `agent/.env`.
 2. Run `agent/run_wa_bridge.bat` for real and scan the QR with their own WhatsApp (Settings → Linked Devices → Link a Device) - this is the user's own account; it should never be paired by an agent session.
 3. Send one real message through the agent (any interface except phone chat) to confirm the full loop end-to-end on a real WhatsApp account, per the plan's Milestone M5 acceptance.
+
+### Phase 5.3 — Telegram send-to-anyone via Telethon (done, verified as much as possible without a real login)
+
+**New files:**
+```text
+agent/services/telegram_user.py     (send_telegram_dm - short-lived Telethon client per call)
+agent/setup_telegram_user.py        (one-time interactive phone+code login, saves tg_user.session)
+```
+`send_telegram_dm(phone_or_username, message)` runs a fresh `asyncio.run()`-wrapped Telethon client per call rather than keeping one alive - deliberately, to avoid any event-loop conflict with the existing long-running bot process (`run_telegram.py`/`telegram_bot.py`, a completely separate process with its own bot-token session, untouched by this). `agent/tg_user.session` (the user's real login) is gitignored.
+
+**Agent tool** `LocalTools.send_telegram_message(contact_name, message, confirm=False)` - identical two-step confirm-before-send shape as 5.2's WhatsApp tool (draft → explicit user yes → `confirm=true` actually sends), reusing the same `resolve_contact` helper. Target resolution prefers `phone_number`, falls back to `telegram_user_id`. Added the matching `TOOL_SCHEMA` entry and `SYSTEM_PROMPT` already covered it generically from the 5.2 update. Wired into CLI/web/Telegram-bot tools_dicts; **explicitly registered-but-refused in `routes_chat.py`** per Ground Rule 3.
+
+**Verified:**
+- Isolated direct-call test (temp storage, no real Telethon session): not-found and ambiguous paths behave correctly; the `confirm_required` draft returns the right target/message; calling with `confirm=true` without `TG_API_ID`/`TG_API_HASH` configured fails with a clear, actionable `RuntimeError` instead of a raw exception or a silent no-op.
+- **Live phone-chat refusal test against the real running API** (restarted `run_api.py`, asked it via `curl` to "Send a Telegram DM to Rose saying hey, whats up" without any other instruction): the model correctly hit the refused stub and replied *"The Telegram messaging function is unavailable through the current phone chat API"*, then proactively offered WhatsApp as an alternative or saving the contact first - exactly the intended failure-safe degradation, not a crash.
+- Full `pytest` suite still 18/18 passing.
+
+**What still needs the user:** get `TG_API_ID`/`TG_API_HASH` from https://my.telegram.org, add both to `agent/.env`, then run `agent/setup_telegram_user.py` once (interactive: phone number, SMS/app confirmation code, and 2FA password if one is set). Only then can a real DM be sent to confirm the full loop, per Milestone M5.

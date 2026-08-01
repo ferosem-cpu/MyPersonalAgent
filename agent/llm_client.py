@@ -144,6 +144,25 @@ TOOL_SCHEMA = [
             "required": ["contact_name", "message"],
         },
     },
+    {
+        "name": "send_telegram_message",
+        "description": (
+            "Send a real Telegram DM to a saved contact by name, using the user's own "
+            "Telegram account (not the bot) - works for any Telegram user, not just ones "
+            "who've started the bot. Two-step confirm-before-send: first call without "
+            "confirm (or confirm=false) to get a draft to show the user; only call again "
+            "with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_name": {"type": "string"},
+                "message": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["contact_name", "message"],
+        },
+    },
 ]
 
 
