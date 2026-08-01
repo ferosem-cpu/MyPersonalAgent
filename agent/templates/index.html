@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>MyPersonalAgent</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <div>
+                <h1>🤖 MyPersonalAgent</h1>
+                <p>Multi-provider AI assistant with tool access</p>
+            </div>
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">☾ Dark</button>
+        </div>
+        <div class="main">
+            <div class="sidebar">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchTab('agent', this)">Agent</button>
+                    <button class="tab-btn" onclick="switchTab('keys', this)">API Keys</button>
+                </div>
+
+                <div id="agent-tab" class="tab-content active">
+                    <div class="section">
+                        <h3>Provider</h3>
+                        <select id="providerSelect" onchange="onProviderChange()">
+                            <option value="">Select Provider...</option>
+                        </select>
+                        <div id="availableProviders"></div>
+                    </div>
+                    <div class="section">
+                        <h3>Model</h3>
+                        <select id="modelSelect" onchange="onModelChange()"></select>
+                    </div>
+                    <button onclick="initializeAgent()" id="initBtn">Initialize Agent</button>
+                    <div class="status" id="status">Not initialized</div>
+                </div>
+
+                <div id="keys-tab" class="tab-content">
+                    <div class="section">
+                        <h3>Providers & API Keys</h3>
+                        <div id="providerEditor"></div>
+                        <button onclick="addProviderRow()" style="width: 100%; margin-top: 10px;">Add Provider</button>
+                        <button onclick="saveApiKeys()" style="width: 100%; margin-top: 10px;">Save Providers</button>
+                        <div class="save-status" id="saveStatus"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="chat-container">
+                <div class="messages" id="messages">
+                    <div class="message assistant">
+                        <div class="message-content">
+                            👋 Welcome! Select a provider and model, then click "Initialize Agent" to get started.
+                        </div>
+                    </div>
+                </div>
+                <div class="input-area">
+                    <input type="text" id="input" placeholder="Type your command..." onkeypress="onKeyPress(event)" disabled>
+                    <button class="send-btn" onclick="sendMessage()" id="sendBtn" disabled>Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.__PROVIDERS__ = {{ providers_json|safe }};
+        window.__MODELS__ = {{ models_json|safe }};
+    </script>
+    <!-- Markdown rendering for assistant replies (Task 4.1) - sanitized before insertion. -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

@@ -11,10 +11,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mypersonalagent.app.data.remote.NoteDto
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel()) {
     val notes by viewModel.notes.collectAsState()
@@ -71,19 +73,19 @@ fun MemoryScreen(viewModel: MemoryViewModel = hiltViewModel()) {
                 )
             }
 
-            if (loading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            if (notes.isEmpty() && !loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (query.isBlank()) "No notes yet" else "No matches")
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(notes, key = { it.id ?: it.text }) { note -> NoteRow(note) }
+            PullToRefreshBox(
+                isRefreshing = loading,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                if (notes.isEmpty() && !loading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(if (query.isBlank()) "No notes yet" else "No matches")
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(notes, key = { it.id ?: it.text }) { note -> NoteRow(note) }
+                    }
                 }
             }
         }

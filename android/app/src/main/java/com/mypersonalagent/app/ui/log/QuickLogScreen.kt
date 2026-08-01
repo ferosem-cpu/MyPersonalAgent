@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mypersonalagent.app.data.local.EntryEntity
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun QuickLogScreen(viewModel: LogViewModel = hiltViewModel()) {
     var title by remember { mutableStateOf("") }
@@ -33,6 +37,7 @@ fun QuickLogScreen(viewModel: LogViewModel = hiltViewModel()) {
     val status by viewModel.status.collectAsState()
     val error by viewModel.error.collectAsState()
     val entries by viewModel.entries.collectAsState()
+    val loading by viewModel.loading.collectAsState()
 
     LaunchedEffect(status) {
         if (status != null) {
@@ -71,11 +76,17 @@ fun QuickLogScreen(viewModel: LogViewModel = hiltViewModel()) {
             }
         }
 
-        if (entries.isEmpty()) {
-            Text("No entries yet")
-        } else {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(entries, key = { it.id }) { entry -> EntryRow(entry) }
+        PullToRefreshBox(
+            isRefreshing = loading,
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.weight(1f),
+        ) {
+            if (entries.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize()) { Text("No entries yet") }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(entries, key = { it.id }) { entry -> EntryRow(entry) }
+                }
             }
         }
     }

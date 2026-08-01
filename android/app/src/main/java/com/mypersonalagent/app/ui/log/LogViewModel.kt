@@ -27,14 +27,19 @@ class LogViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
     init {
         refresh()
     }
 
     fun refresh() {
         viewModelScope.launch {
+            _loading.value = true
             runCatching { repository.refresh() }
                 .onFailure { _error.value = it.message ?: "Failed to load work log" }
+            _loading.value = false
         }
     }
 

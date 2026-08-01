@@ -1,0 +1,205 @@
+/* Portable Work Tracker - standalone stylesheet (file:// safe, no external fetches).
+   Same design language as the web UI (agent/static/css/style.css): 8px spacing grid,
+   rounded-xl cards, subtle shadows, Inter/system font stack. Colors keep this app's
+   own green/orange brand identity rather than copying the web UI's purple. */
+:root {
+  color-scheme: light;
+  --bg: #f5f5f2;
+  --fg: #1e2328;
+  --muted: #667085;
+  --panel: #ffffff;
+  --line: #d9ded8;
+  --accent: #116149;
+  --accent-2: #c15f2f;
+  --danger: #b42318;
+  --input: #ffffff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 8px 24px rgba(16, 24, 40, .08);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111413;
+  --fg: #eef1ed;
+  --muted: #a5aca6;
+  --panel: #1a1f1d;
+  --line: #343b37;
+  --accent: #4fb997;
+  --accent-2: #df8a55;
+  --danger: #ff8a7a;
+  --input: #121615;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .45);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Inter", Segoe UI, system-ui, -apple-system, sans-serif;
+  line-height: 1.45;
+}
+button, input, textarea, select {
+  font: inherit;
+  color: inherit;
+}
+button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  min-height: 38px;
+}
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+button.danger { color: var(--danger); }
+input, textarea, select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--input);
+  border-radius: 8px;
+  padding: 9px 10px;
+  min-height: 38px;
+}
+textarea { min-height: 80px; resize: vertical; }
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+.shell { max-width: 1180px; margin: 0 auto; padding: 24px; }
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+}
+h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 650; }
+.status { color: var(--muted); font-size: 13px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.quick {
+  display: grid;
+  grid-template-columns: 1fr minmax(130px, 190px) minmax(90px, 120px) auto;
+  gap: 8px;
+  margin-top: 16px;
+}
+nav {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+nav button[aria-selected="true"] {
+  background: var(--fg);
+  color: var(--bg);
+  border-color: var(--fg);
+}
+main.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+section.view { display: none; }
+section.view.active { display: block; }
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.panel h2, .panel h3 { margin: 0 0 12px; }
+.grid { display: grid; gap: 8px; }
+.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.item {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+  display: grid;
+  gap: 8px;
+}
+.item:first-child { border-top: 0; padding-top: 0; }
+.item-head {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: start;
+}
+.title { font-weight: 650; }
+.meta, .empty { color: var(--muted); font-size: 13px; }
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tag .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Today/week summary cards (Task 4.2) */
+.summary-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.stat-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel) 100%, var(--accent) 4%);
+}
+.stat-card .stat-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding: 8px 0;
+}
+.overdue { border-left: 4px solid var(--danger); padding-left: 10px; }
+.due-soon { border-left: 4px solid var(--accent-2); padding-left: 10px; }
+dialog {
+  width: min(680px, calc(100vw - 28px));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--fg);
+  padding: 0;
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+.dialog-inner { padding: 24px; }
+.rightcol { position: sticky; top: 168px; }
+@media (max-width: 880px) {
+  .topbar, main.shell, .quick { grid-template-columns: 1fr; }
+  .toolbar { justify-content: start; }
+  .two, .three, .summary-cards { grid-template-columns: 1fr; }
+  .rightcol { position: static; }
+}

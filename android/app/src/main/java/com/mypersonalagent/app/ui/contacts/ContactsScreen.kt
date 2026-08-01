@@ -12,10 +12,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mypersonalagent.app.data.remote.ContactDto
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ContactsScreen(viewModel: ContactsViewModel = hiltViewModel()) {
     val contacts by viewModel.contacts.collectAsState()
@@ -55,36 +57,36 @@ fun ContactsScreen(viewModel: ContactsViewModel = hiltViewModel()) {
                 modifier = Modifier.fillMaxWidth().padding(8.dp),
             )
 
-            if (loading) {
-                Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            if (contacts.isEmpty() && !loading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(if (query.isBlank()) "No contacts yet" else "No matches")
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(contacts, key = { it.id ?: it.name }) { contact ->
-                        ContactRow(
-                            contact = contact,
-                            onDial = {
-                                contact.phoneNumber?.takeIf { it.isNotBlank() }?.let { number ->
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
-                                    )
-                                }
-                            },
-                            onEmail = {
-                                contact.email?.takeIf { it.isNotBlank() }?.let { email ->
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email"))
-                                    )
-                                }
-                            },
-                        )
+            PullToRefreshBox(
+                isRefreshing = loading,
+                onRefresh = { viewModel.refresh(query) },
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                if (contacts.isEmpty() && !loading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(if (query.isBlank()) "No contacts yet" else "No matches")
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(contacts, key = { it.id ?: it.name }) { contact ->
+                            ContactRow(
+                                contact = contact,
+                                onDial = {
+                                    contact.phoneNumber?.takeIf { it.isNotBlank() }?.let { number ->
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))
+                                        )
+                                    }
+                                },
+                                onEmail = {
+                                    contact.email?.takeIf { it.isNotBlank() }?.let { email ->
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email"))
+                                        )
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }

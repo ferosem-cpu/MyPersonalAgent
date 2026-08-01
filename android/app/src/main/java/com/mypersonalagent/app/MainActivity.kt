@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,6 +22,7 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -28,7 +30,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.platform.LocalContext
@@ -54,6 +57,7 @@ import com.mypersonalagent.app.ui.contacts.ContactsScreen
 import com.mypersonalagent.app.ui.log.QuickLogScreen
 import com.mypersonalagent.app.ui.memory.MemoryScreen
 import com.mypersonalagent.app.ui.settings.SettingsScreen
+import com.mypersonalagent.app.ui.theme.MyPersonalAgentTheme
 import com.mypersonalagent.app.ui.todos.TodoListScreen
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -74,6 +78,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -105,7 +110,7 @@ private val routeTitles = mapOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
-    MaterialTheme {
+    MyPersonalAgentTheme {
         Surface(modifier = Modifier) {
             val navController = rememberNavController()
             val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -113,6 +118,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route ?: CHAT_ROUTE
             val avatarUri by shellViewModel.avatarUri.collectAsState()
+            val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
             ModalNavigationDrawer(
                 drawerState = drawerState,
@@ -135,8 +141,9 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                 },
             ) {
                 Scaffold(
+                    modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
                     topBar = {
-                        TopAppBar(
+                        LargeTopAppBar(
                             title = { Text(routeTitles[currentRoute] ?: "Agent") },
                             navigationIcon = {
                                 IconButton(onClick = { scope.launch { drawerState.open() } }) {
@@ -150,6 +157,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                                     Text("⚙") // gear
                                 }
                             },
+                            scrollBehavior = scrollBehavior,
                         )
                     },
                 ) { padding ->

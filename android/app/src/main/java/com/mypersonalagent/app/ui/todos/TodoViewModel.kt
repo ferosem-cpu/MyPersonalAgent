@@ -24,14 +24,19 @@ class TodoViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
     init {
         refresh()
     }
 
     fun refresh() {
         viewModelScope.launch {
+            _loading.value = true
             runCatching { repository.refresh() }
                 .onFailure { _error.value = it.message ?: "Failed to refresh" }
+            _loading.value = false
         }
     }
 
@@ -46,6 +51,13 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.complete(id) }
                 .onFailure { _error.value = it.message ?: "Failed to complete to-do" }
+        }
+    }
+
+    fun deleteTodo(id: String) {
+        viewModelScope.launch {
+            runCatching { repository.delete(id) }
+                .onFailure { _error.value = it.message ?: "Failed to delete to-do" }
         }
     }
 
