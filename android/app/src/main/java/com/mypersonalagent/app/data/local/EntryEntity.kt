@@ -3,7 +3,9 @@ package com.mypersonalagent.app.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mypersonalagent.app.data.remote.EntryDto
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "entries")
 data class EntryEntity(
     @PrimaryKey val id: String,

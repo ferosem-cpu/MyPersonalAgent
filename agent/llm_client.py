@@ -30,7 +30,16 @@ paraphrase or shorten the draft you show them.
 drive_share_link follows the same confirm pattern for a different reason: it makes a
 Drive file public-by-link, which isn't reversible in effect (anyone with the link keeps
 access even if you change your mind later). Warn the user what confirming will do before
-calling it again with confirm=true."""
+calling it again with confirm=true.
+
+Zan-APP tools (zan_create_invoice, zan_issue_invoice, zan_record_payment,
+zan_create_work_order, zan_update_work_order) follow the exact same two-step
+confirm-before-write pattern - these touch real invoices, payments, and work orders in a
+live business system. Always resolve customer_id via zan_list_customers and site_id via
+zan_list_sites first rather than guessing an id. When extracting fields from a dropped
+work-order file (zan_ingest_work_order_file), only use values that are actually present
+in the document text - never invent a site, date, or task type that isn't there, and ask
+the user if something required is missing or ambiguous."""
 
 TOOL_SCHEMA = [
     {
@@ -267,6 +276,157 @@ TOOL_SCHEMA = [
             "properties": {"app": {"type": "string", "description": "blinkit, bigbasket, or zepto"}},
             "required": [],
         },
+    },
+    {
+        "name": "zan_list_customers",
+        "description": "Look up customers in Zan-APP by name (optional substring query). Use this to resolve a customer name to a customerId before creating an invoice.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": []},
+    },
+    {
+        "name": "zan_list_sites",
+        "description": "Look up sites in Zan-APP (optional substring query across site fields). Use this to resolve a site to a siteId before creating a work order.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": []},
+    },
+    {
+        "name": "zan_list_invoices",
+        "description": "List invoices in Zan-APP, optionally filtered by status (draft, issued, partially_paid, paid, cancelled).",
+        "input_schema": {"type": "object", "properties": {"status": {"type": "string"}}, "required": []},
+    },
+    {
+        "name": "zan_list_work_orders",
+        "description": "List work orders in Zan-APP.",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "zan_create_invoice",
+        "description": (
+            "Create a DRAFT invoice or proforma in Zan-APP for a customer. Resolve customer_id "
+            "via zan_list_customers first - never guess an id. line_items is a list of objects "
+            "each with description, quantity, unitPrice (discountPct/taxRatePct optional, default "
+            "0/18). Totals are computed server-side. Two-step confirm-before-write: first call "
+            "without confirm (or confirm=false) to get a draft; show the customer, doc_type, and "
+            "full line items to the user verbatim and only call again with confirm=true after they "
+            "explicitly agree. This only creates a draft - use zan_issue_invoice to finalize it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "doc_type": {"type": "string", "description": "'proforma' or 'tax_invoice'"},
+                "customer_id": {"type": "string"},
+                "line_items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "unitPrice": {"type": "number"},
+                            "discountPct": {"type": "number"},
+                            "taxRatePct": {"type": "number"},
+                        },
+                        "required": ["description", "quantity", "unitPrice"],
+                    },
+                },
+                "order_id": {"type": "string"},
+                "quotation_id": {"type": "string"},
+                "due_date": {"type": "string", "description": "ISO datetime"},
+                "notes": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["doc_type", "customer_id", "line_items"],
+        },
+    },
+    {
+        "name": "zan_issue_invoice",
+        "description": (
+            "Finalize a draft invoice into a real numbered, issued document and notify the "
+            "customer. Not reversible in the normal flow (only cancellation). Confirm-gated: "
+            "first call without confirm to get a warning, show it to the user, only call again "
+            "with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"invoice_id": {"type": "string"}, "confirm": {"type": "boolean"}},
+            "required": ["invoice_id"],
+        },
+    },
+    {
+        "name": "zan_record_payment",
+        "description": (
+            "Record a payment received against an invoice in Zan-APP. Two-step "
+            "confirm-before-write: first call without confirm to get a draft; show the "
+            "invoice, amount, and method to the user verbatim and only call again with "
+            "confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {"type": "string"},
+                "amount": {"type": "number"},
+                "method": {"type": "string", "description": "bank_transfer, upi, cheque, cash, tds, or other"},
+                "reference": {"type": "string"},
+                "notes": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["invoice_id", "amount", "method"],
+        },
+    },
+    {
+        "name": "zan_create_work_order",
+        "description": (
+            "Create a work order in Zan-APP for a site. Resolve site_id via zan_list_sites "
+            "first - never guess an id. Two-step confirm-before-write: first call without "
+            "confirm to get a draft; show the site, task type, title, and instructions to the "
+            "user verbatim and only call again with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "site_id": {"type": "string"},
+                "task_type": {"type": "string"},
+                "title": {"type": "string"},
+                "instructions": {"type": "string"},
+                "scheduled_date": {"type": "string", "description": "ISO datetime"},
+                "assigned_to_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["site_id", "task_type", "title"],
+        },
+    },
+    {
+        "name": "zan_update_work_order",
+        "description": (
+            "Update an existing work order in Zan-APP (status, completion notes, "
+            "reassignment, or reschedule). Two-step confirm-before-write: first call without "
+            "confirm to get a draft of the proposed changes; show them to the user verbatim "
+            "and only call again with confirm=true after they explicitly agree."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "work_order_id": {"type": "string"},
+                "status": {"type": "string"},
+                "completion_notes": {"type": "string"},
+                "assigned_to_id": {"type": "string"},
+                "scheduled_date": {"type": "string", "description": "ISO datetime"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["work_order_id"],
+        },
+    },
+    {
+        "name": "zan_ingest_work_order_file",
+        "description": (
+            "Read a dropped client work-order file (.pdf, .docx, .txt, .md, or .csv) "
+            "from an allowed directory and return its extracted text. Image files and "
+            "scanned/image-only PDFs will return an error instead - tell the user OCR "
+            "isn't supported yet and ask them to describe it or send a text-based "
+            "version. After reading, extract the site, task type, title, and any "
+            "instructions/dates that are actually present in the text - never invent "
+            "values. Then call zan_list_sites to resolve the site, and "
+            "zan_create_work_order (confirm=false first) with the extracted fields."
+        ),
+        "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
     },
 ]
 

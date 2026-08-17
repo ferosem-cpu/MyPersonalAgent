@@ -38,6 +38,10 @@ _ALLOWED_TOOLS = {
     # Shopping-list tools are just tagged notes (same risk profile as remember/recall)
     # and the whole point is managing the list from the phone - safe to allow.
     "add_to_shopping_list", "show_shopping_list", "clear_shopping_list",
+    # Zan-APP read-only lookups - same risk profile as remember/recall/list_todos,
+    # no side effects. The write tools (zan_create_invoice etc.) are deliberately
+    # NOT included - see the comment where they're registered below.
+    "zan_list_customers", "zan_list_sites", "zan_list_invoices", "zan_list_work_orders",
 }
 
 _lock = threading.Lock()
@@ -97,6 +101,24 @@ def _get_llm() -> MultiProviderLLMClient:
         # like open_app/open_url. The Android app does its own local deep-linking instead.
         "order_food": tools.order_food,
         "order_groceries": tools.order_groceries,
+        # Zan-APP tools: read-only lookups are safe (see _ALLOWED_TOOLS below). The
+        # write tools (invoice/work-order create/update) are registered here so they
+        # get the _refused() stub rather than an unhandled KeyError, but are NOT in
+        # _ALLOWED_TOOLS by default - same treatment as send_mail/drive_share_link
+        # above: this is a remote endpoint on a different trust boundary than the
+        # laptop-only CLI/web/Telegram interfaces, so side-effect tools stay excluded
+        # here regardless of their own confirm-gating. See handover notes for the
+        # open question on whether to lift this restriction.
+        "zan_list_customers": tools.zan_list_customers,
+        "zan_list_sites": tools.zan_list_sites,
+        "zan_list_invoices": tools.zan_list_invoices,
+        "zan_list_work_orders": tools.zan_list_work_orders,
+        "zan_create_invoice": tools.zan_create_invoice,
+        "zan_issue_invoice": tools.zan_issue_invoice,
+        "zan_record_payment": tools.zan_record_payment,
+        "zan_create_work_order": tools.zan_create_work_order,
+        "zan_update_work_order": tools.zan_update_work_order,
+        "zan_ingest_work_order_file": tools.zan_ingest_work_order_file,
     }
     restricted = {
         name: (fn if name in _ALLOWED_TOOLS else _refused(name))

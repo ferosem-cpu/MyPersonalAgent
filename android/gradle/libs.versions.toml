@@ -16,6 +16,7 @@ lifecycle = "2.8.6"
 activity-compose = "1.9.2"
 navigation-compose = "2.8.1"
 ksp = "2.0.20-1.0.24"
+play-services-auth = "21.2.0"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core-ktx" }
@@ -47,6 +48,7 @@ hilt-work-compiler = { group = "androidx.hilt", name = "hilt-compiler", version.
 
 work-runtime-ktx = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "play-services-auth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

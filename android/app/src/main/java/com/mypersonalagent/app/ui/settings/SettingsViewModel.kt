@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.common.api.ApiException
 import com.mypersonalagent.app.data.remote.ApiService
+import com.mypersonalagent.app.data.repo.DriveBackupRepository
 import com.mypersonalagent.app.data.repo.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -16,7 +20,32 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class SettingsUiState(val serverUrl: String = "", val apiToken: String = "")
+sealed interface DriveBackupStatus {
+    object Idle : DriveBackupStatus
+    object Working : DriveBackupStatus
+    data class Success(val message: String) : DriveBackupStatus
+    data class Failure(val message: String) : DriveBackupStatus
+}
+
+data class SettingsUiState(
+    val serverUrl: String = "",
+    val apiToken: String = "",
+    val telegramBotToken: String = "",
+    val telegramChatId: String = "",
+    val llmProvider: String = "auto",
+    val anthropicApiKey: String = "",
+    val anthropicModel: String = "",
+    val nvidiaApiKey: String = "",
+    val nvidiaModel: String = "",
+    val openaiApiKey: String = "",
+    val openaiModel: String = "",
+    val googleApiKey: String = "",
+    val googleModel: String = "",
+    val openrouterApiKey: String = "",
+    val openrouterModel: String = "",
+    val grokApiKey: String = "",
+    val grokModel: String = "",
+)
 
 sealed interface ConnectionTestResult {
     object Idle : ConnectionTestResult
@@ -29,11 +58,35 @@ sealed interface ConnectionTestResult {
 class SettingsViewModel @Inject constructor(
     private val settings: SettingsRepository,
     private val api: ApiService,
+    private val googleSignInClient: GoogleSignInClient,
+    private val driveBackupRepository: DriveBackupRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
-    val state: StateFlow<SettingsUiState> = combine(settings.serverUrl, settings.apiToken) { url, token ->
-        SettingsUiState(serverUrl = url ?: "", apiToken = token ?: "")
+    val state: StateFlow<SettingsUiState> = combine(
+        combine(
+            settings.serverUrl, settings.apiToken, settings.telegramBotToken, settings.telegramChatId,
+            settings.llmProvider, settings.anthropicApiKey, settings.anthropicModel,
+        ) { arr -> arr },
+        combine(
+            settings.nvidiaApiKey, settings.nvidiaModel, settings.openaiApiKey, settings.openaiModel,
+            settings.googleApiKey, settings.googleModel, settings.openrouterApiKey,
+        ) { arr -> arr },
+        combine(
+            settings.openrouterModel, settings.grokApiKey, settings.grokModel,
+        ) { arr -> arr },
+    ) { group1, group2, group3 ->
+        SettingsUiState(
+            serverUrl = group1[0] ?: "", apiToken = group1[1] ?: "",
+            telegramBotToken = group1[2] ?: "", telegramChatId = group1[3] ?: "",
+            llmProvider = group1[4] ?: "auto",
+            anthropicApiKey = group1[5] ?: "", anthropicModel = group1[6] ?: "",
+            nvidiaApiKey = group2[0] ?: "", nvidiaModel = group2[1] ?: "",
+            openaiApiKey = group2[2] ?: "", openaiModel = group2[3] ?: "",
+            googleApiKey = group2[4] ?: "", googleModel = group2[5] ?: "",
+            openrouterApiKey = group2[6] ?: "", openrouterModel = group3[0] ?: "",
+            grokApiKey = group3[1] ?: "", grokModel = group3[2] ?: "",
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
     private val _testResult = MutableStateFlow<ConnectionTestResult>(ConnectionTestResult.Idle)
@@ -49,6 +102,61 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settings.setServerUrl(serverUrl.trimEnd('/'))
             settings.setApiToken(apiToken)
+        }
+    }
+
+    fun saveTelegram(botToken: String, chatId: String) {
+        viewModelScope.launch {
+            settings.setTelegramBotToken(botToken.trim())
+            settings.setTelegramChatId(chatId.trim())
+        }
+    }
+
+    fun saveLlmProvider(provider: String) {
+        viewModelScope.launch {
+            settings.setLlmProvider(provider.trim().lowercase())
+        }
+    }
+
+    fun saveAnthropic(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setAnthropicApiKey(apiKey.trim())
+            settings.setAnthropicModel(model.trim())
+        }
+    }
+
+    fun saveNvidia(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setNvidiaApiKey(apiKey.trim())
+            settings.setNvidiaModel(model.trim())
+        }
+    }
+
+    fun saveOpenai(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setOpenaiApiKey(apiKey.trim())
+            settings.setOpenaiModel(model.trim())
+        }
+    }
+
+    fun saveGoogle(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setGoogleApiKey(apiKey.trim())
+            settings.setGoogleModel(model.trim())
+        }
+    }
+
+    fun saveOpenrouter(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setOpenrouterApiKey(apiKey.trim())
+            settings.setOpenrouterModel(model.trim())
+        }
+    }
+
+    fun saveGrok(apiKey: String, model: String) {
+        viewModelScope.launch {
+            settings.setGrokApiKey(apiKey.trim())
+            settings.setGrokModel(model.trim())
         }
     }
 
@@ -90,5 +198,48 @@ class SettingsViewModel @Inject constructor(
 
     fun clearLaunchResult() {
         _launchResult.value = null
+    }
+
+    // --- Google Drive backup (Phase E) ---
+
+    private val _driveAccountEmail = MutableStateFlow(driveBackupRepository.currentAccount()?.email)
+    val driveAccountEmail: StateFlow<String?> = _driveAccountEmail
+
+    private val _backupStatus = MutableStateFlow<DriveBackupStatus>(DriveBackupStatus.Idle)
+    val backupStatus: StateFlow<DriveBackupStatus> = _backupStatus
+
+    fun driveSignInIntent(): Intent = googleSignInClient.signInIntent
+
+    /** Call from the Activity's sign-in ActivityResultLauncher callback with the returned Intent. */
+    fun handleDriveSignInResult(data: Intent?) {
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            _driveAccountEmail.value = account?.email
+        } catch (e: ApiException) {
+            _backupStatus.value = DriveBackupStatus.Failure("Sign-in failed: ${e.message}")
+        }
+    }
+
+    fun driveSignOut() {
+        googleSignInClient.signOut().addOnCompleteListener { _driveAccountEmail.value = null }
+    }
+
+    fun backupNow() {
+        viewModelScope.launch {
+            _backupStatus.value = DriveBackupStatus.Working
+            runCatching { driveBackupRepository.backupNow() }
+                .onSuccess { _backupStatus.value = DriveBackupStatus.Success("Backed up successfully.") }
+                .onFailure { _backupStatus.value = DriveBackupStatus.Failure(it.message ?: "Backup failed") }
+        }
+    }
+
+    fun restoreLatestBackup() {
+        viewModelScope.launch {
+            _backupStatus.value = DriveBackupStatus.Working
+            runCatching { driveBackupRepository.restoreLatest() }
+                .onSuccess { count -> _backupStatus.value = DriveBackupStatus.Success("Restored $count records.") }
+                .onFailure { _backupStatus.value = DriveBackupStatus.Failure(it.message ?: "Restore failed") }
+        }
     }
 }

@@ -70,4 +70,5 @@ dependencies {
 
     implementation(libs.work.runtime.ktx)
     implementation(libs.datastore.preferences)
+    implementation(libs.play.services.auth)
 }

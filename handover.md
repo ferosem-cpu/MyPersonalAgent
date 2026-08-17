@@ -1142,3 +1142,94 @@ Everything was committed and pushed to `github.com/ferosem-cpu/MyPersonalAgent` 
 2. Telegram: get `TG_API_ID`/`TG_API_HASH` from my.telegram.org, run `setup_telegram_user.py` once.
 3. Email: run `setup_gmail_account.py <name> <address>` per personal account (never a work/corporate one).
 4. Try the new Android features on a real device: nav redesign (already flagged last session), plus this session's Material 3 pass, app-alias "Open app" action, and the grocery-order button - none of these have been touched by a real touchscreen yet.
+
+
+---
+
+## Session Update — 2026-08-07: Zan-APP integration (invoices + work orders via voice/chat)
+
+New capability, not part of PLAN_V2: the user asked whether MyPersonalAgent could create/update
+invoices and work orders in Zan-APP (a separate proprietary business app, also owned by the
+user - see Zan-APP's own `docs/HANDOVER.md`) by talking to the agent, and drop in client work-order
+files to have them parsed and entered automatically. Confirmed feasible and built.
+
+**New files:**
+- `agent/services/zan_app.py` - HTTP client for `zan-app-api`. Logs in via `POST /auth/login`
+  using `ZAN_APP_EMAIL`/`ZAN_APP_PASSWORD` from `.env`, caches the JWT to
+  `agent/data/zan_app_token.json` (already covered by `.gitignore`'s `agent/data/` entry) and
+  auto-relogins on 401. Exposes `list_customers`, `list_sites`, `list_invoices`, `get_invoice`,
+  `create_invoice`, `issue_invoice`, `record_payment`, `create_work_order`, `update_work_order`,
+  `list_work_orders` - mapped directly to Zan-APP's existing `apps/api/src/routes/invoices.ts`
+  and `workOrders.ts` routes and `packages/shared/src/schemas.ts` field shapes. No changes were
+  needed on the Zan-APP side - the existing endpoints already covered everything required.
+- `agent/services/doc_extract.py` - `extract_text(path)` for dropped work-order files: `.pdf`
+  (via `pypdf`), `.docx` (via `python-docx`, including table cells), `.txt`/`.md`/`.csv` (plain
+  read). Image files and scanned/image-only PDFs raise a clear `ExtractionError` instead of
+  silently returning empty text (OCR isn't wired up), so the agent can tell the user rather than
+  hallucinating fields from nothing.
+
+
+**`agent/agent.py`** - 11 new `LocalTools` methods: `zan_list_customers`, `zan_list_sites`,
+`zan_list_invoices`, `zan_list_work_orders` (reads, run immediately), and
+`zan_create_invoice`, `zan_issue_invoice`, `zan_record_payment`, `zan_create_work_order`,
+`zan_update_work_order` (writes - same two-step confirm-before-execute pattern as
+`send_mail`/`send_whatsapp_message` from Phase 5: first call returns a `confirm_required` draft,
+only executes once called again with `confirm=true` after the user explicitly agrees), plus
+`zan_ingest_work_order_file(path)` which calls `doc_extract.extract_text` and returns the raw
+text for the calling LLM to parse fields from - deliberately no LLM call inside the tool itself.
+
+**`agent/llm_client.py`** - matching `TOOL_SCHEMA` entries for all 11 tools, plus a new
+`SYSTEM_PROMPT` paragraph: resolve `customer_id`/`site_id` via the list tools first rather than
+guessing an id, and never invent a site/date/task type when parsing a dropped file - only use
+what's actually in the extracted text, ask the user if something required is missing/ambiguous.
+
+**Wired into all four tools_dicts** (this app has four independent places tools get registered,
+and missing any of them either makes a tool silently unavailable or - for `routes_chat.py`
+specifically - causes an unhandled `KeyError` per that file's own docstring warning, so all four
+needed updating, not just the obvious one):
+- `agent/agent.py` (CLI) - full access
+- `agent/web_ui.py` - full access
+- `agent/run_telegram.py` - full access (this is the user's own private Telegram session, same
+  trust level as CLI/web, per existing Phase 5 convention)
+- `agent/api/routes_chat.py` (remote phone REST API) - registered to avoid the `KeyError`, but
+  only the 4 read-only `zan_list_*` tools were added to `_ALLOWED_TOOLS`. The 5 write tools stay
+  on the `_refused()` stub there **by default**, matching how `send_mail`/`drive_share_link` are
+  treated in that file even though they're confirm-gated too - Ground Rule 3 style reasoning:
+  this endpoint is a different trust boundary (remote/internet-facing) than the laptop-only
+  CLI/web/Telegram interfaces, so side-effect tools stay excluded regardless of their own gating.
+  **Open question for the user**: if invoice/work-order creation should be reachable from the
+  phone app specifically (not just Telegram/CLI/web on the laptop), this restriction needs to be
+  deliberately lifted - flagged to the user, not yet decided either way.
+
+
+**Dependencies:** `pypdf>=5.0.0` and `python-docx>=1.1.0` added to `requirements.txt` and
+installed into `.venv`. **New `.env`/`.env.example` entries:** `ZAN_APP_API_URL`,
+`ZAN_APP_EMAIL`, `ZAN_APP_PASSWORD` - with a comment recommending a **dedicated management-role
+Zan-APP account** for the agent rather than the user's own personal login, so agent-driven writes
+are distinguishable in Zan-APP's own audit/edit logs (`createdById`/`editedById`) and the
+credential can be rotated or revoked independently if this machine or `.env` is ever compromised.
+Not yet filled in with real values - this is the one remaining manual step before any live call
+can succeed (see below).
+
+**Verified:**
+- All 7 touched/new files (`agent.py`, `llm_client.py`, `web_ui.py`, `run_telegram.py`,
+  `api/routes_chat.py`, `services/zan_app.py`, `services/doc_extract.py`) compile clean
+  (`py_compile`, exit 0).
+- `services/zan_app.py` imports cleanly and exposes all expected functions.
+- `doc_extract.extract_text` tested against **real generated files**, not mocks: a real `.docx`
+  with a paragraph + a table extracted correctly (including the table cell content, joined with
+  `|`), a real `.pdf` (via `reportlab`, a throwaway test-only dependency, uninstalled afterward)
+  extracted correctly, and a fake `.jpg` path correctly raised the intended `ExtractionError`
+  with the expected message instead of crashing or returning empty text. Test artifacts cleaned
+  up afterward, `reportlab` uninstalled.
+- Full `pytest` suite still **18/18** after all changes.
+
+**Not yet done / needs the user:**
+1. Fill in `ZAN_APP_API_URL` (the real `zan-app-api` Vercel deployment URL), `ZAN_APP_EMAIL`,
+   `ZAN_APP_PASSWORD` in `agent/.env` - ideally a newly-created dedicated management user in
+   Zan-APP, not the user's own login.
+2. No live round-trip against a real running `zan-app-api` yet (login → create draft invoice →
+   issue it, or create/update a work order) - blocked on step 1.
+3. The phone-chat write-access question above is still open, pending the user's decision.
+4. OCR for scanned/image-only work orders is out of scope for now (see `doc_extract.py`'s own
+   docstring) - flagged as a known gap, not silently ignored.

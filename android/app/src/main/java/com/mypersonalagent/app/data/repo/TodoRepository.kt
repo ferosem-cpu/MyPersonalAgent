@@ -2,58 +2,54 @@ package com.mypersonalagent.app.data.repo
 
 import com.mypersonalagent.app.data.local.TodoDao
 import com.mypersonalagent.app.data.local.TodoEntity
-import com.mypersonalagent.app.data.remote.ApiService
-import com.mypersonalagent.app.sync.SyncScheduler
+import com.mypersonalagent.app.notifications.ReminderScheduler
 import kotlinx.coroutines.flow.Flow
 import java.time.OffsetDateTime
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Standalone (2026-08-12 pivot): Room is the only source of truth, no server involved.
+ * IDs and timestamps are generated on-device; there is nothing to push or pull.
+ */
 @Singleton
 class TodoRepository @Inject constructor(
-    private val api: ApiService,
     private val dao: TodoDao,
-    private val syncScheduler: SyncScheduler,
+    private val reminderScheduler: ReminderScheduler,
 ) {
-    val todos: Flow<List<TodoEntity>> = dao.observeAll() // UI always reads Room (single source of truth)
+    val todos: Flow<List<TodoEntity>> = dao.observeAll()
 
-    suspend fun refresh() { // one-time full pull, used on first load; steady state is via SyncWorker
-        val remote = api.listTodos("all")
-        dao.upsertAll(remote.map { TodoEntity.fromDto(it, pendingSync = false) })
-    }
+    /** No-op kept for ViewModel compatibility (pre-standalone this pulled from the server). */
+    suspend fun refresh() {}
 
-    /** Write-locally-first (Phase 2): the UI update and any offline usage never
-     * wait on the network - a background sync (triggered here, and periodically) pushes it. */
     suspend fun create(title: String, project: String, due: String?) {
         val now = OffsetDateTime.now().toString()
         dao.upsert(
             TodoEntity(
                 id = UUID.randomUUID().toString(), title = title, project = project, due = due,
-                status = "open", created = now, updated = now, pendingSync = true,
+                status = "open", created = now, updated = now,
             )
         )
-        syncScheduler.requestExpedited()
+        reminderScheduler.requestImmediateCheck()
     }
 
     suspend fun complete(id: String) {
         val current = dao.getById(id) ?: return
         val now = OffsetDateTime.now().toString()
-        dao.upsert(current.copy(status = "done", completed = now, updated = now, pendingSync = true))
-        syncScheduler.requestExpedited()
+        dao.upsert(current.copy(status = "done", completed = now, updated = now))
     }
 
     suspend fun snooze(id: String, until: String) {
         val current = dao.getById(id) ?: return
         val now = OffsetDateTime.now().toString()
-        dao.upsert(current.copy(status = "snoozed", snoozeUntil = until, updated = now, pendingSync = true))
-        syncScheduler.requestExpedited()
+        dao.upsert(current.copy(status = "snoozed", snoozeUntil = until, updated = now, notifiedForDue = null))
+        reminderScheduler.requestImmediateCheck()
     }
 
     suspend fun delete(id: String) {
         val current = dao.getById(id) ?: return
         val now = OffsetDateTime.now().toString()
-        dao.upsert(current.copy(locallyDeleted = true, updated = now, pendingSync = true))
-        syncScheduler.requestExpedited()
+        dao.upsert(current.copy(deleted = true, updated = now))
     }
 }

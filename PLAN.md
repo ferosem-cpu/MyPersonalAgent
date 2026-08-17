@@ -4,6 +4,8 @@
 **Repo:** `D:\Projects\MyPersonalAgent`
 **Goal:** Add a REST API backend over the existing storage layer, then an Android app with full offline sync, without breaking the existing tracker page, CLI agent, web UI, Telegram bot, or scheduler.
 
+> **⚠️ 2026-08-12 pivot — see `PLAN_STANDALONE.md`.** The Android app's direction changed: it now runs fully standalone (no laptop/server dependency at all) rather than syncing against the `agent/api/` backend described below. Phases A–D of that new plan are complete as of 2026-08-12 — local storage, local reminders, direct Telegram, and direct LLM chat, all with zero calls into this file's `agent/api/` server. **This file (`PLAN.md`) remains accurate for the laptop-side backend/CLI/web-UI/Telegram-bot system**, which is untouched and still runs independently for anyone using it there — it's just no longer what the Android app talks to. Do not resume Android Phase 1–3 work from this file; use `PLAN_STANDALONE.md` for anything Android-related.
+
 ---
 
 ## Ground Rules (read before every task)
@@ -19,7 +21,7 @@
 
 ## Phase 0 — Backend API Foundation (2 weeks)
 
-**Outcome:** A FastAPI server (`agent/api/`) on port 8500 exposing todos, worklog, memory, and contacts over authenticated REST, backed by a new SQLite storage backend with sync metadata, with the JSON backend still the default and untouched.
+**Outcome:** A FastAPI server (`agent/api/`) on port 7011 exposing todos, worklog, memory, and contacts over authenticated REST, backed by a new SQLite storage backend with sync metadata, with the JSON backend still the default and untouched.
 
 ### Task 0.1 — Repo hygiene and dependencies
 
@@ -292,14 +294,14 @@ import uvicorn
 from api.server import create_app
 app = create_app()
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8500)   # 8500: web_ui already owns 5000
+    uvicorn.run(app, host="0.0.0.0", port=7011)   # 7011: web_ui already owns 5000
 ```
 
 `agent/run_api.bat` (copy the pattern from `run_web.bat`, but run `.venv\Scripts\python.exe run_api.py`).
 
 Also: add `AGENT_API_TOKEN=` to `agent/.env.example` with a comment (`# generate: python -c "import secrets;print(secrets.token_urlsafe(32))"`). Do NOT write into the real `.env` — tell the user to add it.
 
-**Acceptance:** `run_api.bat` starts; `http://localhost:8500/docs` shows OpenAPI UI; `GET /api/v1/health` → 200 without a key; `GET /api/v1/todos` → 401 without key, 200 with correct `X-API-Key`.
+**Acceptance:** `run_api.bat` starts; `http://localhost:7011/docs` shows OpenAPI UI; `GET /api/v1/health` → 200 without a key; `GET /api/v1/todos` → 401 without key, 200 with correct `X-API-Key`.
 
 ---
 
@@ -460,8 +462,8 @@ Content-Type: application/json
 
 No code — documentation task. Append a "Phone access" section to `D:\Projects\MyPersonalAgent\README.md`:
 
-- **Recommended:** install Tailscale on laptop + phone; Android app uses `http://<tailscale-ip>:8500`. Zero port-forwarding, encrypted, free.
-- Alternative: LAN-only (`http://192.168.x.x:8500`) when on home Wi-Fi.
+- **Recommended:** install Tailscale on laptop + phone; Android app uses `http://<tailscale-ip>:7011`. Zero port-forwarding, encrypted, free.
+- Alternative: LAN-only (`http://192.168.x.x:7011`) when on home Wi-Fi.
 - Note the known limitation from the spec (Part 3.5): API only reachable while laptop is on; the future e2-micro VM deployment (Phase 3 stretch) lifts `run_api.py` + `scheduler.py` to the cloud unchanged because everything routes through `storage.py`.
 
 ---
@@ -737,7 +739,7 @@ Deploy `run_api.py` + `scheduler.py` + `run_telegram.py` to a GCP e2-micro (alwa
 | Tracker `index.html` shows stale data after SQLite switch | JSON mirror write in Task 2.1 step 5 |
 | Clock skew between phone and laptop breaks last-write-wins | Compare `updated` in UTC; client uses its own clock for `updated` but server clock for the `last_sync` cursor; document ±5 min tolerance test in Task 3.4 |
 | Masked-key style data-loss bugs (happened before in web_ui) | API never returns or accepts masked secrets; token lives only in `.env` and phone DataStore |
-| Duplicate process spawn quirk (see handover.md 2026-07-20) | `run_api.py` binds port 8500 — duplicate spawn fails to bind and exits harmlessly; never kill individual PIDs from the session launcher |
+| Duplicate process spawn quirk (see handover.md 2026-07-20) | `run_api.py` binds port 7011 — duplicate spawn fails to bind and exits harmlessly; never kill individual PIDs from the session launcher |
 | ISO timestamp format drift (`storage.now_iso()` uses local offset) | Normalize to UTC at every comparison point (`upsert_item`, sync cursor); add a unit test with mixed-offset timestamps |
 | Breaking existing tools_dict wiring | Never modify `agent.py`/`web_ui.py`/`run_telegram.py` in Phases 0–2 except the three one-line `deleted`-skip guards in Task 0.2 |
 
@@ -747,3 +749,42 @@ Deploy `run_api.py` + `scheduler.py` + `run_telegram.py` to a GCP e2-micro (alwa
 - Phase 2.1: set `"storage": "json"` — JSON mirror is always current.
 - Android: uninstall app; server unaffected.
 - Data safety net: Google Drive mirror sync (already live) backs up every JSON save.
+
+---
+
+## Session Log — 2026-08-05
+
+**Issue:** Android agent could not reach `192.168.1.7:7011`.
+
+**Root cause found:** `run_api.py` (PID 2188 → child 4744) had been running since 2026-08-03 05:45 but never bound port 7011 — process was alive and consuming CPU (547s) with no listening socket. Likely hung/crashed silently during Uvicorn startup; not the documented "duplicate spawn" quirk (that one fails to bind and exits harmlessly — this one hung without exiting). IP address (`192.168.1.7`) was still correct and unrelated.
+
+**Fix applied:**
+1. Killed the stuck process tree (`Stop-Process -Id 4744,2188 -Force`).
+2. Relaunched via `run_api.bat` as a detached process (`Start-Process ... -WindowStyle Minimized`) so it survives independent of any interactive session.
+3. Confirmed `netstat` shows `0.0.0.0:7011 LISTENING` and `GET /api/v1/health` returns `{"status":"ok"}` locally.
+
+**New issue surfaced:** No Windows Firewall inbound rule existed for TCP 7011. Even with the server correctly bound, LAN devices (phone) would likely have been blocked. `New-NetFirewallRule` failed here with Access Denied (Desktop Commander session isn't elevated).
+
+**Action needed from user:** Run this in an **elevated** PowerShell/CMD:
+```powershell
+New-NetFirewallRule -DisplayName "MyPersonalAgent7011" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 7011
+```
+
+**Follow-up for Task 3.4 (Hardening):** Add a startup health-check/watchdog for `run_api.py` — e.g. a scheduled task or wrapper script that checks `netstat`/hits `/api/v1/health` a few seconds after launch and alerts (Telegram) if the port never binds, so a silent-hang like this doesn't go unnoticed until someone tries to connect from the phone.
+
+
+## Session Log — 2026-08-12
+
+**Decision:** Pivoted the Android app to run fully standalone — no dependency on this laptop/the `agent/api/` server at all. Full rationale, feasibility breakdown, and phased execution plan live in the new `PLAN_STANDALONE.md`.
+
+**Completed same day (Phases A–D of `PLAN_STANDALONE.md`):**
+- Local Room storage for todos, entries, notes, and contacts (notes/contacts previously had no local table — server-only).
+- Local-only reminders (periodic + immediate WorkManager checks), replacing the old sync-triggered notification path.
+- Direct Telegram reminders — phone calls `api.telegram.org` directly, no `run_telegram.py` bridge.
+- Direct LLM chat — phone calls the Anthropic API directly with a client-side tool-execution loop (add_todo, complete_todo, list_todos, log_work, remember, recall), no agent-server chat endpoint involved.
+
+All four phases verified via `gradlew compileDebugKotlin`/`assembleDebug` on the actual `android/` project — clean builds throughout. Not yet verified on a physical device/emulator (build-level only).
+
+**Status of this file's system (backend/CLI/web-UI/Telegram-bot on the laptop):** unaffected, still fully functional for anyone using it directly on the laptop. The Android app just doesn't talk to it anymore.
+
+**Remaining Android work (tracked in `PLAN_STANDALONE.md`, not here):** Phase E (Google Drive backup), Phase F (cleanup — remove now-dead server URL/API token settings fields and `ApiService` plumbing, left in place through A–D to keep each step low-risk). WhatsApp integration remains an open decision, not started.

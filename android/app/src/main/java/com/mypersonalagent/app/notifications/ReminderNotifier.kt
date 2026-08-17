@@ -20,9 +20,9 @@ import java.time.format.DateTimeParseException
 private const val CHANNEL_ID = "reminders"
 
 /**
- * Best-effort local reminders for todos due soon. Telegram (server-side, via scheduler.py)
- * remains the guaranteed escalation channel for overdue items - this only covers the
- * "coming up soon" window so the phone doesn't stay silent between syncs.
+ * Best-effort local reminders for todos due soon. Standalone (2026-08-12 pivot): this is now
+ * the only reminder path - Telegram is an optional supplementary channel dispatched by the
+ * caller (see ReminderWorker), not a separate server-side escalation system anymore.
  */
 object ReminderNotifier {
 
@@ -36,15 +36,18 @@ object ReminderNotifier {
         manager.createNotificationChannel(channel)
     }
 
-    /** Call after every successful sync pull. Notifies for open todos entering their due window. */
-    suspend fun checkAndNotify(context: Context, todoDao: TodoDao) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        ensureChannel(context)
+    /** Notifies for open todos entering their due window. [onNotified] fires once per
+     * notified todo regardless of whether the local Android notification could be posted
+     * (e.g. permission denied) - callers use it to dispatch supplementary channels like Telegram. */
+    suspend fun checkAndNotify(
+        context: Context,
+        todoDao: TodoDao,
+        onNotified: suspend (TodoEntity) -> Unit = {},
+    ) {
+        val canPostLocal = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (canPostLocal) ensureChannel(context)
 
         val now = Instant.now()
         for (todo in todoDao.openTodos()) {
@@ -53,11 +56,12 @@ object ReminderNotifier {
 
             val due = parseInstant(effectiveDue) ?: continue
             val windowStart = due.minusSeconds(todo.remindBeforeMin * 60L)
-            val windowEnd = due.plusSeconds(60 * 60) // stay quiet on old overdue items - Telegram nags those
+            val windowEnd = due.plusSeconds(60 * 60) // stay quiet on old overdue items
             if (now.isBefore(windowStart) || now.isAfter(windowEnd)) continue
 
-            notify(context, todo)
+            if (canPostLocal) notify(context, todo)
             todoDao.setNotifiedForDue(todo.id, effectiveDue)
+            onNotified(todo)
         }
     }
 

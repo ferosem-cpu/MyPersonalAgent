@@ -68,6 +68,16 @@ def main() -> None:
         "clear_shopping_list": tools.clear_shopping_list,
         "order_food": tools.order_food,
         "order_groceries": tools.order_groceries,
+        "zan_list_customers": tools.zan_list_customers,
+        "zan_list_sites": tools.zan_list_sites,
+        "zan_list_invoices": tools.zan_list_invoices,
+        "zan_list_work_orders": tools.zan_list_work_orders,
+        "zan_create_invoice": tools.zan_create_invoice,
+        "zan_issue_invoice": tools.zan_issue_invoice,
+        "zan_record_payment": tools.zan_record_payment,
+        "zan_create_work_order": tools.zan_create_work_order,
+        "zan_update_work_order": tools.zan_update_work_order,
+        "zan_ingest_work_order_file": tools.zan_ingest_work_order_file,
     }
     llm = MultiProviderLLMClient(
         config,

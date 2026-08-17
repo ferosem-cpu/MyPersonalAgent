@@ -502,6 +502,244 @@ class LocalTools:
         log_action("clear_shopping_list", {}, f"cleared {count}")
         return {"cleared": count}
 
+    # --- Zan-APP integration ---------------------------------------------------
+    # Reads (list_/get_) run immediately. Writes always return a "confirm_required"
+    # draft first and only execute once called again with confirm=True after the
+    # user has explicitly agreed - same pattern as send_mail/send_whatsapp_message
+    # above. This matters more here than for comms: these calls touch invoices and
+    # work orders in Zan-APP, and finance is management-only with no exceptions.
+
+    def zan_list_customers(self, query: str = "") -> list[dict[str, Any]]:
+        from services.zan_app import list_customers as _list
+
+        results = _list(query)
+        log_action("zan_list_customers", {"query": query}, f"{len(results)} results")
+        return results
+
+    def zan_list_sites(self, query: str = "") -> list[dict[str, Any]]:
+        from services.zan_app import list_sites as _list
+
+        results = _list(query)
+        log_action("zan_list_sites", {"query": query}, f"{len(results)} results")
+        return results
+
+    def zan_list_invoices(self, status: str | None = None) -> list[dict[str, Any]]:
+        from services.zan_app import list_invoices as _list
+
+        results = _list(status)
+        log_action("zan_list_invoices", {"status": status}, f"{len(results)} results")
+        return results
+
+    def zan_list_work_orders(self) -> list[dict[str, Any]]:
+        from services.zan_app import list_work_orders as _list
+
+        results = _list()
+        log_action("zan_list_work_orders", {}, f"{len(results)} results")
+        return results
+
+    def zan_create_invoice(
+        self,
+        doc_type: str,
+        customer_id: str,
+        line_items: list[dict[str, Any]],
+        order_id: str | None = None,
+        quotation_id: str | None = None,
+        due_date: str | None = None,
+        notes: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """Create a draft invoice/proforma. doc_type is 'proforma' or 'tax_invoice'.
+        Each line_item needs description, quantity, unitPrice (discountPct/taxRatePct
+        optional). Totals are computed server-side. This only creates a DRAFT - it
+        still needs zan_issue_invoice to become a real numbered document."""
+        payload = {
+            "docType": doc_type,
+            "customerId": customer_id,
+            "lineItems": line_items,
+        }
+        if order_id:
+            payload["orderId"] = order_id
+        if quotation_id:
+            payload["quotationId"] = quotation_id
+        if due_date:
+            payload["dueDate"] = due_date
+        if notes:
+            payload["notes"] = notes
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "action": "create_invoice",
+                "payload": payload,
+                "instruction": (
+                    "Show the customer, doc type, and full line items (with quantities and "
+                    "prices) to the user verbatim and ask them to confirm before creating "
+                    "this invoice draft. Only call again with confirm=true after they "
+                    "explicitly agree."
+                ),
+            }
+            log_action("zan_create_invoice", {**payload, "confirm": False}, "draft shown")
+            return result
+
+        from services.zan_app import create_invoice as _create
+
+        invoice = _create(payload)
+        log_action("zan_create_invoice", {**payload, "confirm": True}, invoice.get("id", ""))
+        return invoice
+
+    def zan_issue_invoice(self, invoice_id: str, confirm: bool = False) -> dict[str, Any]:
+        """Turns a draft invoice into a real numbered, issued document. Not reversible
+        in the normal flow (only cancellation), so this is confirm-gated too."""
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "action": "issue_invoice",
+                "invoice_id": invoice_id,
+                "instruction": (
+                    "Issuing assigns a permanent invoice number and notifies the customer. "
+                    "Confirm with the user before proceeding, then call again with confirm=true."
+                ),
+            }
+            log_action("zan_issue_invoice", {"invoice_id": invoice_id, "confirm": False}, "confirmation required")
+            return result
+
+        from services.zan_app import issue_invoice as _issue
+
+        invoice = _issue(invoice_id)
+        log_action("zan_issue_invoice", {"invoice_id": invoice_id, "confirm": True}, invoice.get("invoiceNumber", ""))
+        return invoice
+
+    def zan_record_payment(
+        self,
+        invoice_id: str,
+        amount: float,
+        method: str,
+        reference: str | None = None,
+        notes: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        """method is one of: bank_transfer, upi, cheque, cash, tds, other."""
+        payload: dict[str, Any] = {"amount": amount, "method": method}
+        if reference:
+            payload["reference"] = reference
+        if notes:
+            payload["notes"] = notes
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "action": "record_payment",
+                "invoice_id": invoice_id,
+                "payload": payload,
+                "instruction": (
+                    "Show the invoice, amount, and payment method to the user verbatim and "
+                    "ask them to confirm before recording this payment. Only call again with "
+                    "confirm=true after they explicitly agree."
+                ),
+            }
+            log_action("zan_record_payment", {"invoice_id": invoice_id, **payload, "confirm": False}, "draft shown")
+            return result
+
+        from services.zan_app import record_payment as _record
+
+        result = _record(invoice_id, payload)
+        log_action("zan_record_payment", {"invoice_id": invoice_id, **payload, "confirm": True}, result.get("status", ""))
+        return result
+
+    def zan_create_work_order(
+        self,
+        site_id: str,
+        task_type: str,
+        title: str,
+        instructions: str | None = None,
+        scheduled_date: str | None = None,
+        assigned_to_id: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"siteId": site_id, "taskType": task_type, "title": title}
+        if instructions:
+            payload["instructions"] = instructions
+        if scheduled_date:
+            payload["scheduledDate"] = scheduled_date
+        if assigned_to_id:
+            payload["assignedToId"] = assigned_to_id
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "action": "create_work_order",
+                "payload": payload,
+                "instruction": (
+                    "Show the site, task type, title, and instructions to the user verbatim "
+                    "and ask them to confirm before creating this work order. Only call again "
+                    "with confirm=true after they explicitly agree."
+                ),
+            }
+            log_action("zan_create_work_order", {**payload, "confirm": False}, "draft shown")
+            return result
+
+        from services.zan_app import create_work_order as _create
+
+        work_order = _create(payload)
+        log_action("zan_create_work_order", {**payload, "confirm": True}, work_order.get("workOrderNumber", ""))
+        return work_order
+
+    def zan_update_work_order(
+        self,
+        work_order_id: str,
+        status: str | None = None,
+        completion_notes: str | None = None,
+        assigned_to_id: str | None = None,
+        scheduled_date: str | None = None,
+        confirm: bool = False,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if status:
+            payload["status"] = status
+        if completion_notes:
+            payload["completionNotes"] = completion_notes
+        if assigned_to_id:
+            payload["assignedToId"] = assigned_to_id
+        if scheduled_date:
+            payload["scheduledDate"] = scheduled_date
+
+        if not confirm:
+            result = {
+                "status": "confirm_required",
+                "action": "update_work_order",
+                "work_order_id": work_order_id,
+                "payload": payload,
+                "instruction": (
+                    "Show the requested changes to the user verbatim and ask them to confirm "
+                    "before updating this work order. Only call again with confirm=true after "
+                    "they explicitly agree."
+                ),
+            }
+            log_action("zan_update_work_order", {"work_order_id": work_order_id, **payload, "confirm": False}, "draft shown")
+            return result
+
+        from services.zan_app import update_work_order as _update
+
+        work_order = _update(work_order_id, payload)
+        log_action("zan_update_work_order", {"work_order_id": work_order_id, **payload, "confirm": True}, work_order.get("status", ""))
+        return work_order
+
+    def zan_ingest_work_order_file(self, path: str) -> dict[str, Any]:
+        """Reads a dropped client work-order file (.pdf, .docx, .txt, .md, or .csv)
+        from an allowed directory and returns its extracted text. Image files
+        (.jpg/.png/etc) and scanned/image-only PDFs raise a clear error instead of
+        silent empty text, since OCR isn't wired up. The calling LLM should extract
+        site, task type, title, and any instructions/dates from the returned text,
+        then call zan_list_sites to resolve the site, and zan_create_work_order
+        (confirm=false first) with the extracted fields - never invent field values
+        that aren't actually present in the document."""
+        from services.doc_extract import extract_text
+
+        resolved = self._resolve_allowed(path)
+        text = extract_text(resolved)
+        log_action("zan_ingest_work_order_file", {"path": str(resolved)}, f"{len(text)} chars")
+        return {"path": str(resolved), "text": text}
+
     def order_food(self, query: str, app: str = "swiggy") -> dict[str, Any]:
         from services.food_assist import order_food as _order
 
@@ -560,6 +798,16 @@ def main() -> None:
         "clear_shopping_list": tools.clear_shopping_list,
         "order_food": tools.order_food,
         "order_groceries": tools.order_groceries,
+        "zan_list_customers": tools.zan_list_customers,
+        "zan_list_sites": tools.zan_list_sites,
+        "zan_list_invoices": tools.zan_list_invoices,
+        "zan_list_work_orders": tools.zan_list_work_orders,
+        "zan_create_invoice": tools.zan_create_invoice,
+        "zan_issue_invoice": tools.zan_issue_invoice,
+        "zan_record_payment": tools.zan_record_payment,
+        "zan_create_work_order": tools.zan_create_work_order,
+        "zan_update_work_order": tools.zan_update_work_order,
+        "zan_ingest_work_order_file": tools.zan_ingest_work_order_file,
     }
 
     # Initialize multi-provider LLM client

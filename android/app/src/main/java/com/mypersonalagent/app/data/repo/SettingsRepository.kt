@@ -26,12 +26,42 @@ class SettingsRepository @Inject constructor(
         val LAST_SYNC = stringPreferencesKey("last_sync")
         val AVATAR_URI = stringPreferencesKey("avatar_uri")
         val APP_ALIASES = stringPreferencesKey("app_aliases_json")
+        val TELEGRAM_BOT_TOKEN = stringPreferencesKey("telegram_bot_token")
+        val TELEGRAM_CHAT_ID = stringPreferencesKey("telegram_chat_id")
+        val LLM_PROVIDER = stringPreferencesKey("llm_provider")
+        val ANTHROPIC_API_KEY = stringPreferencesKey("anthropic_api_key")
+        val ANTHROPIC_MODEL = stringPreferencesKey("anthropic_model")
+        val NVIDIA_API_KEY = stringPreferencesKey("nvidia_api_key")
+        val NVIDIA_MODEL = stringPreferencesKey("nvidia_model")
+        val OPENAI_API_KEY = stringPreferencesKey("openai_api_key")
+        val OPENAI_MODEL = stringPreferencesKey("openai_model")
+        val GOOGLE_API_KEY = stringPreferencesKey("google_api_key")
+        val GOOGLE_MODEL = stringPreferencesKey("google_model")
+        val OPENROUTER_API_KEY = stringPreferencesKey("openrouter_api_key")
+        val OPENROUTER_MODEL = stringPreferencesKey("openrouter_model")
+        val GROK_API_KEY = stringPreferencesKey("grok_api_key")
+        val GROK_MODEL = stringPreferencesKey("grok_model")
     }
 
     val serverUrl: Flow<String?> = context.dataStore.data.map { it[Keys.SERVER_URL] }
     val apiToken: Flow<String?> = context.dataStore.data.map { it[Keys.API_TOKEN] }
     val lastSync: Flow<String?> = context.dataStore.data.map { it[Keys.LAST_SYNC] }
     val avatarUri: Flow<String?> = context.dataStore.data.map { it[Keys.AVATAR_URI] }
+    val telegramBotToken: Flow<String?> = context.dataStore.data.map { it[Keys.TELEGRAM_BOT_TOKEN] }
+    val telegramChatId: Flow<String?> = context.dataStore.data.map { it[Keys.TELEGRAM_CHAT_ID] }
+    val llmProvider: Flow<String?> = context.dataStore.data.map { it[Keys.LLM_PROVIDER] }
+    val anthropicApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.ANTHROPIC_API_KEY] }
+    val anthropicModel: Flow<String?> = context.dataStore.data.map { it[Keys.ANTHROPIC_MODEL] }
+    val nvidiaApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.NVIDIA_API_KEY] }
+    val nvidiaModel: Flow<String?> = context.dataStore.data.map { it[Keys.NVIDIA_MODEL] }
+    val openaiApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.OPENAI_API_KEY] }
+    val openaiModel: Flow<String?> = context.dataStore.data.map { it[Keys.OPENAI_MODEL] }
+    val googleApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.GOOGLE_API_KEY] }
+    val googleModel: Flow<String?> = context.dataStore.data.map { it[Keys.GOOGLE_MODEL] }
+    val openrouterApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.OPENROUTER_API_KEY] }
+    val openrouterModel: Flow<String?> = context.dataStore.data.map { it[Keys.OPENROUTER_MODEL] }
+    val grokApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.GROK_API_KEY] }
+    val grokModel: Flow<String?> = context.dataStore.data.map { it[Keys.GROK_MODEL] }
 
     /** alias (lowercase, user-facing name) -> Android package name. Purely local, no server round-trip. */
     val appAliases: Flow<Map<String, String>> = context.dataStore.data.map { prefs ->
@@ -60,5 +90,65 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setAvatarUri(uri: String) {
         context.dataStore.edit { it[Keys.AVATAR_URI] = uri }
+    }
+
+    suspend fun setTelegramBotToken(token: String) {
+        context.dataStore.edit { it[Keys.TELEGRAM_BOT_TOKEN] = token }
+    }
+
+    suspend fun setTelegramChatId(chatId: String) {
+        context.dataStore.edit { it[Keys.TELEGRAM_CHAT_ID] = chatId }
+    }
+
+    suspend fun setLlmProvider(provider: String) {
+        context.dataStore.edit { it[Keys.LLM_PROVIDER] = provider }
+    }
+
+    suspend fun setAnthropicApiKey(key: String) {
+        context.dataStore.edit { it[Keys.ANTHROPIC_API_KEY] = key }
+    }
+
+    suspend fun setAnthropicModel(model: String) {
+        context.dataStore.edit { it[Keys.ANTHROPIC_MODEL] = model }
+    }
+
+    suspend fun setNvidiaApiKey(key: String) {
+        context.dataStore.edit { it[Keys.NVIDIA_API_KEY] = key }
+    }
+
+    suspend fun setNvidiaModel(model: String) {
+        context.dataStore.edit { it[Keys.NVIDIA_MODEL] = model }
+    }
+
+    suspend fun setOpenaiApiKey(key: String) {
+        context.dataStore.edit { it[Keys.OPENAI_API_KEY] = key }
+    }
+
+    suspend fun setOpenaiModel(model: String) {
+        context.dataStore.edit { it[Keys.OPENAI_MODEL] = model }
+    }
+
+    suspend fun setGoogleApiKey(key: String) {
+        context.dataStore.edit { it[Keys.GOOGLE_API_KEY] = key }
+    }
+
+    suspend fun setGoogleModel(model: String) {
+        context.dataStore.edit { it[Keys.GOOGLE_MODEL] = model }
+    }
+
+    suspend fun setOpenrouterApiKey(key: String) {
+        context.dataStore.edit { it[Keys.OPENROUTER_API_KEY] = key }
+    }
+
+    suspend fun setOpenrouterModel(model: String) {
+        context.dataStore.edit { it[Keys.OPENROUTER_MODEL] = model }
+    }
+
+    suspend fun setGrokApiKey(key: String) {
+        context.dataStore.edit { it[Keys.GROK_API_KEY] = key }
+    }
+
+    suspend fun setGrokModel(model: String) {
+        context.dataStore.edit { it[Keys.GROK_MODEL] = model }
     }
 }

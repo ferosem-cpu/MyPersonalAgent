@@ -3,7 +3,9 @@ package com.mypersonalagent.app.data.local
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mypersonalagent.app.data.remote.TodoDto
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "todos")
 data class TodoEntity(
     @PrimaryKey val id: String,

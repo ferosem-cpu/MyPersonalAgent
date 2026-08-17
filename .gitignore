@@ -92,6 +92,8 @@ credentials.json
 token.json
 drive_credentials.json
 drive_token.json
+agent/zan_drive_*.json
+*.apk
 
 # Compiled Python files
 *.pyo
