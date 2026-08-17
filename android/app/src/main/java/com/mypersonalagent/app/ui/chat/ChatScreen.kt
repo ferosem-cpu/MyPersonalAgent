@@ -9,7 +9,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +28,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicNone
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -36,7 +39,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -198,31 +202,29 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
                             focusedContainerColor = MaterialTheme.colorScheme.surface,
                         ),
+                        trailingIcon = {
+                            IconButton(
+                                onClick = {
+                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                                        PackageManager.PERMISSION_GRANTED
+                                    if (granted) launchSpeechRecognizer()
+                                    else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = if (isListening) Icons.Filled.Mic else Icons.Filled.MicNone,
+                                    contentDescription = "Voice Input",
+                                    tint = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         maxLines = 4,
                     )
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Speech Mic Button
-                    FilledTonalIconButton(
-                        onClick = {
-                            val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                                PackageManager.PERMISSION_GRANTED
-                            if (granted) launchSpeechRecognizer()
-                            else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                        },
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = if (isListening) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                        ),
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Text("🎤", style = MaterialTheme.typography.titleMedium)
-                    }
-
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Send Button
+                    // Send Button with vector Material Send Icon
                     FilledIconButton(
                         onClick = {
                             if (input.isNotBlank() && !sending) {
@@ -231,9 +233,16 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                             }
                         },
                         enabled = !sending && input.isNotBlank(),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                        ),
                         modifier = Modifier.size(48.dp),
                     ) {
-                        Text("➔", style = MaterialTheme.typography.titleMedium)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send Message",
+                        )
                     }
                 }
             }

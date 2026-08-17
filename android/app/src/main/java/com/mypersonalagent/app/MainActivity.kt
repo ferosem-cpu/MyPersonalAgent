@@ -16,6 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -83,13 +91,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class BottomNavDestination(val route: String, val label: String, val iconText: String) {
-    Chat("chat", "Chat", "💬"),
-    Todos("todos", "Todos", "📝"),
-    Log("log", "Log", "⏱️"),
-    Memory("memory", "Memory", "🧠"),
-    Contacts("contacts", "Contacts", "📇"),
-    Settings("settings", "Settings", "⚙️"),
+private enum class BottomNavDestination(val route: String, val label: String, val icon: ImageVector) {
+    Chat("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
+    Todos("todos", "Todos", Icons.Filled.FormatListBulleted),
+    Log("log", "Log", Icons.Filled.History),
+    Memory("memory", "Memory", Icons.Filled.Lightbulb),
+    Contacts("contacts", "Contacts", Icons.Filled.Contacts),
+    Settings("settings", "Settings", Icons.Filled.Settings),
 }
 
 private val routeTitles = mapOf(
@@ -148,7 +156,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                                         }
                                     }
                                 },
-                                icon = { Text(dest.iconText) },
+                                icon = { Icon(imageVector = dest.icon, contentDescription = dest.label) },
                                 label = { Text(dest.label) },
                             )
                         }
