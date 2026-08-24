@@ -4,17 +4,31 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,13 +38,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
+private data class ProviderSpec(
+    val id: String,
+    val label: String,
+    val keyHint: String,
+    val modelHint: String,
+)
+
+private val LLM_PROVIDERS = listOf(
+    ProviderSpec("auto", "Auto (fallback)", "", ""),
+    ProviderSpec("nvidia", "NVIDIA", "nvapi-…", "nvidia/llama-3.3-nemotron-super-49b-v1.5"),
+    ProviderSpec("anthropic", "Anthropic", "sk-ant-…", "claude-sonnet-5"),
+    ProviderSpec("openai", "OpenAI", "sk-…", "gpt-4o"),
+    ProviderSpec("google", "Google", "AIza…", "gemini-2.0-flash"),
+    ProviderSpec("openrouter", "OpenRouter", "sk-or-…", "anthropic/claude-sonnet-5"),
+    ProviderSpec("grok", "Grok", "xai-…", "grok-3"),
+)
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    val testResult by viewModel.testResult.collectAsState()
+    val saveMessage by viewModel.saveMessage.collectAsState()
     val appAliases by viewModel.appAliases.collectAsState()
     val launchResult by viewModel.launchResult.collectAsState()
     val driveAccountEmail by viewModel.driveAccountEmail.collectAsState()
@@ -40,8 +75,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         ActivityResultContracts.StartActivityForResult(),
     ) { result -> viewModel.handleDriveSignInResult(result.data) }
 
-    var serverUrl by remember { mutableStateOf("") }
-    var apiToken by remember { mutableStateOf("") }
+    var hydrated by remember { mutableStateOf(false) }
     var telegramBotToken by remember { mutableStateOf("") }
     var telegramChatId by remember { mutableStateOf("") }
     var llmProvider by remember { mutableStateOf("auto") }
@@ -61,286 +95,219 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     var newAliasName by remember { mutableStateOf("") }
     var newAliasPackage by remember { mutableStateOf("") }
 
-    LaunchedEffect(state) {
-        serverUrl = state.serverUrl
-        apiToken = state.apiToken
-        telegramBotToken = state.telegramBotToken
-        telegramChatId = state.telegramChatId
-        llmProvider = state.llmProvider
-        nvidiaApiKey = state.nvidiaApiKey
-        nvidiaModel = state.nvidiaModel
-        anthropicApiKey = state.anthropicApiKey
-        anthropicModel = state.anthropicModel
-        openaiApiKey = state.openaiApiKey
-        openaiModel = state.openaiModel
-        googleApiKey = state.googleApiKey
-        googleModel = state.googleModel
-        openrouterApiKey = state.openrouterApiKey
-        openrouterModel = state.openrouterModel
-        grokApiKey = state.grokApiKey
-        grokModel = state.grokModel
+    LaunchedEffect(state.ready) {
+        if (state.ready && !hydrated) {
+            telegramBotToken = state.telegramBotToken
+            telegramChatId = state.telegramChatId
+            llmProvider = state.llmProvider.ifBlank { "auto" }
+            nvidiaApiKey = state.nvidiaApiKey
+            nvidiaModel = state.nvidiaModel
+            anthropicApiKey = state.anthropicApiKey
+            anthropicModel = state.anthropicModel
+            openaiApiKey = state.openaiApiKey
+            openaiModel = state.openaiModel
+            googleApiKey = state.googleApiKey
+            googleModel = state.googleModel
+            openrouterApiKey = state.openrouterApiKey
+            openrouterModel = state.openrouterModel
+            grokApiKey = state.grokApiKey
+            grokModel = state.grokModel
+            hydrated = true
+        }
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        OutlinedTextField(
-            value = serverUrl,
-            onValueChange = { serverUrl = it },
-            label = { Text("Server URL (e.g. http://100.x.x.x:8500)") },
-        )
-        OutlinedTextField(
-            value = apiToken,
-            onValueChange = { apiToken = it },
-            label = { Text("API token") },
-        )
-        Button(onClick = { viewModel.save(serverUrl, apiToken) }) {
-            Text("Save")
-        }
-        Button(onClick = { viewModel.save(serverUrl, apiToken); viewModel.testConnection() }) {
-            Text("Test connection")
-        }
-        when (val result = testResult) {
-            is ConnectionTestResult.Idle -> {}
-            is ConnectionTestResult.Testing -> Text("Testing...")
-            is ConnectionTestResult.Success -> Text("Connected ✓")
-            is ConnectionTestResult.Failure -> Text("Failed: ${result.message}")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        Text("Telegram reminders", style = MaterialTheme.typography.titleMedium)
+        Text("Settings", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Optional - sent directly from the phone, no laptop or server needed. " +
-                "Create a bot via @BotFather to get a token, then message the bot once and use " +
-                "https://api.telegram.org/bot<token>/getUpdates to find your chat id.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        OutlinedTextField(
-            value = telegramBotToken,
-            onValueChange = { telegramBotToken = it },
-            label = { Text("Bot token") },
-        )
-        OutlinedTextField(
-            value = telegramChatId,
-            onValueChange = { telegramChatId = it },
-            label = { Text("Chat ID") },
-        )
-        Button(onClick = { viewModel.saveTelegram(telegramBotToken, telegramChatId) }) {
-            Text("Save Telegram settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        Text("Multi-Provider Agent Chat", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Configure your LLM API keys for on-device AI chat with tools. " +
-                "In Auto mode, the app will automatically fall back to the next available key if one fails.",
-            style = MaterialTheme.typography.bodySmall,
+            "This app runs entirely on your phone. Paste API keys below and tap Save all keys once.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        OutlinedTextField(
-            value = llmProvider,
-            onValueChange = { llmProvider = it },
-            label = { Text("Active Provider (auto, nvidia, anthropic, openai, google, openrouter, grok)") },
-        )
-        Button(onClick = { viewModel.saveLlmProvider(llmProvider) }) {
-            Text("Save Active Provider Choice")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("1. NVIDIA NIM", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = nvidiaApiKey,
-            onValueChange = { nvidiaApiKey = it },
-            label = { Text("NVIDIA API key (nvapi-...)") },
-        )
-        OutlinedTextField(
-            value = nvidiaModel,
-            onValueChange = { nvidiaModel = it },
-            label = { Text("Model (default: nvidia/llama-3.3-nemotron-super-49b-v1.5)") },
-        )
-        Button(onClick = { viewModel.saveNvidia(nvidiaApiKey, nvidiaModel) }) {
-            Text("Save NVIDIA settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("2. Anthropic", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = anthropicApiKey,
-            onValueChange = { anthropicApiKey = it },
-            label = { Text("Anthropic API key (sk-ant-...)") },
-        )
-        OutlinedTextField(
-            value = anthropicModel,
-            onValueChange = { anthropicModel = it },
-            label = { Text("Model (default: claude-sonnet-5)") },
-        )
-        Button(onClick = { viewModel.saveAnthropic(anthropicApiKey, anthropicModel) }) {
-            Text("Save Anthropic settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("3. OpenAI", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = openaiApiKey,
-            onValueChange = { openaiApiKey = it },
-            label = { Text("OpenAI API key (sk-...)") },
-        )
-        OutlinedTextField(
-            value = openaiModel,
-            onValueChange = { openaiModel = it },
-            label = { Text("Model (default: gpt-4o)") },
-        )
-        Button(onClick = { viewModel.saveOpenai(openaiApiKey, openaiModel) }) {
-            Text("Save OpenAI settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("4. Google Gemini", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = googleApiKey,
-            onValueChange = { googleApiKey = it },
-            label = { Text("Google API key") },
-        )
-        OutlinedTextField(
-            value = googleModel,
-            onValueChange = { googleModel = it },
-            label = { Text("Model (default: gemini-2.0-flash)") },
-        )
-        Button(onClick = { viewModel.saveGoogle(googleApiKey, googleModel) }) {
-            Text("Save Google settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("5. OpenRouter", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = openrouterApiKey,
-            onValueChange = { openrouterApiKey = it },
-            label = { Text("OpenRouter API key (sk-or-...)") },
-        )
-        OutlinedTextField(
-            value = openrouterModel,
-            onValueChange = { openrouterModel = it },
-            label = { Text("Model (default: anthropic/claude-sonnet-5)") },
-        )
-        Button(onClick = { viewModel.saveOpenrouter(openrouterApiKey, openrouterModel) }) {
-            Text("Save OpenRouter settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-        Text("6. xAI Grok", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(
-            value = grokApiKey,
-            onValueChange = { grokApiKey = it },
-            label = { Text("Grok API key") },
-        )
-        OutlinedTextField(
-            value = grokModel,
-            onValueChange = { grokModel = it },
-            label = { Text("Model (default: grok-beta)") },
-        )
-        Button(onClick = { viewModel.saveGrok(grokApiKey, grokModel) }) {
-            Text("Save Grok settings")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        Text("Google Drive backup", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Optional - backs up your todos, log, notes, and contacts straight from the " +
-                "phone to your own Google Drive (a private app-only file, not visible in " +
-                "your normal Drive). Runs automatically once a day when signed in, or trigger " +
-                "it manually below.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        if (driveAccountEmail != null) {
-            Text("Signed in as $driveAccountEmail", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { viewModel.backupNow() }) { Text("Back up now") }
-                Button(onClick = { viewModel.restoreLatestBackup() }) { Text("Restore latest backup") }
-            }
-            Button(onClick = { viewModel.driveSignOut() }) { Text("Sign out") }
-        } else {
-            Button(onClick = { driveSignInLauncher.launch(viewModel.driveSignInIntent()) }) {
-                Text("Sign in to Google Drive")
-            }
-        }
-        when (val status = backupStatus) {
-            is DriveBackupStatus.Idle -> {}
-            is DriveBackupStatus.Working -> Text("Working...")
-            is DriveBackupStatus.Success -> Text(status.message)
-            is DriveBackupStatus.Failure -> Text("Failed: ${status.message}")
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        Text("Open app", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Purely local - no server needed. Type an alias below, or an app's package name.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = openAppQuery,
-                onValueChange = { openAppQuery = it },
-                label = { Text("Alias or package name") },
-                modifier = Modifier.weight(1f),
-            )
-            Button(
-                onClick = { viewModel.openApp(openAppQuery) },
-                modifier = Modifier.padding(start = 8.dp),
-            ) { Text("Open") }
-        }
-        launchResult?.let { message ->
-            Text(message, style = MaterialTheme.typography.bodySmall)
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-        Text("App aliases", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Map a short name (e.g. \"swiggy\") to an app's package name so \"Open app\" and voice commands can find it.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        appAliases.forEach { (alias, packageName) ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+        if (saveMessage != null) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(alias, style = MaterialTheme.typography.bodyMedium)
-                    Text(packageName, style = MaterialTheme.typography.bodySmall)
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(saveMessage ?: "", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    TextButton(onClick = { viewModel.clearSaveMessage() }) { Text("OK") }
                 }
-                Button(onClick = { viewModel.removeAppAlias(alias) }) { Text("Remove") }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = newAliasName,
-                onValueChange = { newAliasName = it },
-                label = { Text("Alias") },
-                modifier = Modifier.weight(1f),
-            )
-            OutlinedTextField(
-                value = newAliasPackage,
-                onValueChange = { newAliasPackage = it },
-                label = { Text("Package name") },
-                modifier = Modifier.weight(1f).padding(start = 8.dp),
-            )
+
+        SettingsCard(title = "AI chat keys", subtitle = "One save writes every key you filled in. Leaving a field blank keeps the key already stored.") {
+            Text("Preferred provider", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LLM_PROVIDERS.forEach { spec ->
+                    FilterChip(
+                        selected = llmProvider == spec.id,
+                        onClick = { llmProvider = spec.id },
+                        label = { Text(spec.label) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            KeyField("NVIDIA API key", nvidiaApiKey, { nvidiaApiKey = it }, LLM_PROVIDERS[1].keyHint, saved = state.nvidiaApiKey.isNotBlank())
+            OutlinedTextField(value = nvidiaModel, onValueChange = { nvidiaModel = it }, label = { Text("NVIDIA model") }, placeholder = { Text(LLM_PROVIDERS[1].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.nvidiaApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("nvidia"); nvidiaApiKey = "" }) { Text("Remove NVIDIA key") }
+
+            KeyField("Anthropic API key", anthropicApiKey, { anthropicApiKey = it }, LLM_PROVIDERS[2].keyHint, saved = state.anthropicApiKey.isNotBlank())
+            OutlinedTextField(value = anthropicModel, onValueChange = { anthropicModel = it }, label = { Text("Anthropic model") }, placeholder = { Text(LLM_PROVIDERS[2].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.anthropicApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("anthropic"); anthropicApiKey = "" }) { Text("Remove Anthropic key") }
+
+            KeyField("OpenAI API key", openaiApiKey, { openaiApiKey = it }, LLM_PROVIDERS[3].keyHint, saved = state.openaiApiKey.isNotBlank())
+            OutlinedTextField(value = openaiModel, onValueChange = { openaiModel = it }, label = { Text("OpenAI model") }, placeholder = { Text(LLM_PROVIDERS[3].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.openaiApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("openai"); openaiApiKey = "" }) { Text("Remove OpenAI key") }
+
+            KeyField("Google API key", googleApiKey, { googleApiKey = it }, LLM_PROVIDERS[4].keyHint, saved = state.googleApiKey.isNotBlank())
+            OutlinedTextField(value = googleModel, onValueChange = { googleModel = it }, label = { Text("Google model") }, placeholder = { Text(LLM_PROVIDERS[4].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.googleApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("google"); googleApiKey = "" }) { Text("Remove Google key") }
+
+            KeyField("OpenRouter API key", openrouterApiKey, { openrouterApiKey = it }, LLM_PROVIDERS[5].keyHint, saved = state.openrouterApiKey.isNotBlank())
+            OutlinedTextField(value = openrouterModel, onValueChange = { openrouterModel = it }, label = { Text("OpenRouter model") }, placeholder = { Text(LLM_PROVIDERS[5].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.openrouterApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("openrouter"); openrouterApiKey = "" }) { Text("Remove OpenRouter key") }
+
+            KeyField("Grok API key", grokApiKey, { grokApiKey = it }, LLM_PROVIDERS[6].keyHint, saved = state.grokApiKey.isNotBlank())
+            OutlinedTextField(value = grokModel, onValueChange = { grokModel = it }, label = { Text("Grok model") }, placeholder = { Text(LLM_PROVIDERS[6].modelHint) }, modifier = Modifier.fillMaxWidth())
+            if (state.grokApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("grok"); grokApiKey = "" }) { Text("Remove Grok key") }
+
+            Button(
+                onClick = {
+                    viewModel.saveAllKeys(
+                        provider = llmProvider,
+                        nvidiaApiKey = nvidiaApiKey,
+                        nvidiaModel = nvidiaModel,
+                        anthropicApiKey = anthropicApiKey,
+                        anthropicModel = anthropicModel,
+                        openaiApiKey = openaiApiKey,
+                        openaiModel = openaiModel,
+                        googleApiKey = googleApiKey,
+                        googleModel = googleModel,
+                        openrouterApiKey = openrouterApiKey,
+                        openrouterModel = openrouterModel,
+                        grokApiKey = grokApiKey,
+                        grokModel = grokModel,
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) { Text("Save all keys") }
         }
-        Button(onClick = {
-            viewModel.addAppAlias(newAliasName, newAliasPackage)
-            newAliasName = ""
-            newAliasPackage = ""
-        }) { Text("Add alias") }
+
+        SettingsCard(title = "Telegram reminders", subtitle = "Optional. Create a bot with @BotFather, message it, then paste the token and chat id.") {
+            KeyField("Bot token", telegramBotToken, { telegramBotToken = it }, "123456:ABC…", saved = state.telegramBotToken.isNotBlank())
+            OutlinedTextField(value = telegramChatId, onValueChange = { telegramChatId = it }, label = { Text("Chat ID") }, modifier = Modifier.fillMaxWidth())
+            Button(onClick = { viewModel.saveTelegram(telegramBotToken, telegramChatId) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Save Telegram")
+            }
+        }
+
+        SettingsCard(title = "Google Drive backup", subtitle = "Optional private backup of todos, log, notes, and contacts.") {
+            if (driveAccountEmail != null) {
+                Text("Signed in as $driveAccountEmail", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { viewModel.backupNow() }) { Text("Back up now") }
+                    OutlinedButton(onClick = { viewModel.restoreLatestBackup() }) { Text("Restore") }
+                }
+                TextButton(onClick = { viewModel.driveSignOut() }) { Text("Sign out") }
+            } else {
+                Button(onClick = { driveSignInLauncher.launch(viewModel.driveSignInIntent()) }) {
+                    Text("Sign in to Google Drive")
+                }
+            }
+            when (val status = backupStatus) {
+                is DriveBackupStatus.Idle -> {}
+                is DriveBackupStatus.Working -> Text("Working…")
+                is DriveBackupStatus.Success -> Text(status.message)
+                is DriveBackupStatus.Failure -> Text("Failed: ${status.message}", color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        SettingsCard(title = "Open app", subtitle = "Local only — type an alias or package name.") {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = openAppQuery,
+                    onValueChange = { openAppQuery = it },
+                    label = { Text("Alias or package") },
+                    modifier = Modifier.weight(1f),
+                )
+                Button(onClick = { viewModel.openApp(openAppQuery) }) { Text("Open") }
+            }
+            launchResult?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+            Text("Aliases", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+            appAliases.forEach { (alias, packageName) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(alias, style = MaterialTheme.typography.bodyMedium)
+                        Text(packageName, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = { viewModel.removeAppAlias(alias) }) { Text("Remove") }
+                }
+            }
+            OutlinedTextField(value = newAliasName, onValueChange = { newAliasName = it }, label = { Text("Alias") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = newAliasPackage, onValueChange = { newAliasPackage = it }, label = { Text("Package name") }, modifier = Modifier.fillMaxWidth())
+            OutlinedButton(onClick = {
+                viewModel.addAppAlias(newAliasName, newAliasPackage)
+                newAliasName = ""
+                newAliasPackage = ""
+            }) { Text("Add alias") }
+        }
     }
+}
+
+@Composable
+private fun SettingsCard(title: String, subtitle: String, content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun KeyField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    hint: String,
+    saved: Boolean,
+) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(if (saved) "$label · saved" else label) },
+        placeholder = { Text(hint) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        trailingIcon = {
+            IconButton(onClick = { visible = !visible }) {
+                Icon(
+                    imageVector = if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = if (visible) "Hide key" else "Show key",
+                )
+            }
+        },
+    )
 }

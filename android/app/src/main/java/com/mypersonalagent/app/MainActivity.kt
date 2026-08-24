@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -97,16 +98,15 @@ private enum class BottomNavDestination(val route: String, val label: String, va
     Log("log", "Log", Icons.Filled.History),
     Memory("memory", "Memory", Icons.Filled.Lightbulb),
     Contacts("contacts", "Contacts", Icons.Filled.Contacts),
-    Settings("settings", "Settings", Icons.Filled.Settings),
 }
 
 private val routeTitles = mapOf(
-    "chat" to "Agent Chat",
-    "todos" to "To-Do List",
-    "log" to "Work Log",
-    "memory" to "Memory & Notes",
+    "chat" to "Agent",
+    "todos" to "To-dos",
+    "log" to "Work log",
+    "memory" to "Memory",
     "contacts" to "Contacts",
-    "settings" to "App Settings",
+    "settings" to "Settings",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -118,6 +118,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route ?: BottomNavDestination.Chat.route
             val avatarUri by shellViewModel.avatarUri.collectAsState()
+            val showBottomBar = currentRoute != "settings"
 
             Scaffold(
                 topBar = {
@@ -129,6 +130,15 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                             )
                         },
                         actions = {
+                            IconButton(
+                                onClick = {
+                                    if (currentRoute != "settings") {
+                                        navController.navigate("settings")
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                            }
                             AvatarActionButton(
                                 avatarUri = avatarUri,
                                 onAvatarPicked = shellViewModel::setAvatarUri,
@@ -140,25 +150,27 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                     )
                 },
                 bottomBar = {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ) {
-                        BottomNavDestination.entries.forEach { dest ->
-                            val selected = currentRoute == dest.route
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = {
-                                    if (currentRoute != dest.route) {
-                                        navController.navigate(dest.route) {
-                                            popUpTo(BottomNavDestination.Chat.route) { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
+                    if (showBottomBar) {
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        ) {
+                            BottomNavDestination.entries.forEach { dest ->
+                                val selected = currentRoute == dest.route
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = {
+                                        if (currentRoute != dest.route) {
+                                            navController.navigate(dest.route) {
+                                                popUpTo(BottomNavDestination.Chat.route) { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
                                         }
-                                    }
-                                },
-                                icon = { Icon(imageVector = dest.icon, contentDescription = dest.label) },
-                                label = { Text(dest.label) },
-                            )
+                                    },
+                                    icon = { Icon(imageVector = dest.icon, contentDescription = dest.label) },
+                                    label = { Text(dest.label) },
+                                )
+                            }
                         }
                     }
                 },
@@ -173,7 +185,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                     composable(BottomNavDestination.Log.route) { QuickLogScreen() }
                     composable(BottomNavDestination.Memory.route) { MemoryScreen() }
                     composable(BottomNavDestination.Contacts.route) { ContactsScreen() }
-                    composable(BottomNavDestination.Settings.route) { SettingsScreen() }
+                    composable("settings") { SettingsScreen() }
                 }
             }
         }
@@ -215,7 +227,7 @@ private fun AvatarActionButton(avatarUri: String?, onAvatarPicked: (String) -> U
         if (bitmap != null) {
             Image(painter = BitmapPainter(bitmap), contentDescription = "Avatar")
         } else {
-            Text("👤", style = MaterialTheme.typography.bodySmall)
+            Text("You", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

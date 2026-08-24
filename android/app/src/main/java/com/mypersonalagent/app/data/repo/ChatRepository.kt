@@ -41,6 +41,11 @@ data class ProviderConfig(
     val type: String, // "openai" or "anthropic"
 )
 
+data class ChatReply(
+    val text: String,
+    val provider: String? = null,
+)
+
 @Singleton
 class ChatRepository @Inject constructor(
     @Named("anthropic") private val httpClient: OkHttpClient,
@@ -54,22 +59,34 @@ class ChatRepository @Inject constructor(
     /** In-memory only - conversation resets on process death. */
     private val history = mutableListOf<JsonObject>()
 
-    suspend fun send(message: String): String {
+    suspend fun send(message: String): ChatReply {
         val configuredProviders = getConfiguredProviders()
         if (configuredProviders.isEmpty()) {
-            return "No LLM API keys configured. Add an API key for NVIDIA, Anthropic, OpenAI, Google, OpenRouter, or Grok in Settings."
+            return ChatReply(
+                "No API keys saved yet. Open Settings (gear icon), paste at least one key, tap Save all keys, then try again.",
+            )
         }
 
+        val snapshot = history.toList()
         var lastError: Exception? = null
         for (provider in configuredProviders) {
             try {
-                return executeTurn(provider, message)
+                history.clear()
+                history.addAll(snapshot)
+                val reply = executeTurn(provider, message).trim()
+                if (reply.isBlank() || reply == "(no reply)") {
+                    throw IllegalStateException("${provider.name} returned an empty reply")
+                }
+                return ChatReply(reply, provider.name)
             } catch (e: Exception) {
+                history.clear()
+                history.addAll(snapshot)
                 lastError = e
             }
         }
 
-        return "All configured LLM providers failed. Last error: ${lastError?.message ?: "Unknown error"}"
+        val detail = lastError?.message?.take(400) ?: "Unknown error"
+        return ChatReply("All configured providers failed. Last error: $detail")
     }
 
     private suspend fun getConfiguredProviders(): List<ProviderConfig> {
@@ -91,7 +108,7 @@ class ChatRepository @Inject constructor(
         val openrouterModel = settings.openrouterModel.first()?.trim()?.ifBlank { null } ?: "anthropic/claude-sonnet-5"
 
         val grokKey = settings.grokApiKey.first()?.trim()
-        val grokModel = settings.grokModel.first()?.trim()?.ifBlank { null } ?: "grok-beta"
+        val grokModel = settings.grokModel.first()?.trim()?.ifBlank { null } ?: "grok-3"
 
         val list = mutableListOf<ProviderConfig>()
 
@@ -142,11 +159,13 @@ class ChatRepository @Inject constructor(
             history.add(buildJsonObject { put("role", "assistant"); put("content", contentBlocks) })
 
             if (stopReason != "tool_use") {
-                return contentBlocks
+                val text = contentBlocks
                     .mapNotNull { it as? JsonObject }
                     .firstOrNull { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
                     ?.get("text")?.jsonPrimitive?.contentOrNull
-                    ?: "(no reply)"
+                    ?.trim()
+                if (text.isNullOrBlank()) error("${provider.name} returned no text")
+                return text
             }
 
             val toolResults = buildJsonArray {
@@ -169,21 +188,26 @@ class ChatRepository @Inject constructor(
             }
             history.add(buildJsonObject { put("role", "user"); put("content", toolResults) })
         }
-        return "Reached maximum tool execution rounds."
+        error("Reached maximum tool execution rounds.")
     }
 
     private suspend fun executeTurnOpenAI(provider: ProviderConfig, userMessage: String): String {
         val messages = mutableListOf<JsonObject>()
         messages.add(buildJsonObject { put("role", "system"); put("content", SYSTEM_PROMPT.trim()) })
 
-        // Convert existing history items
         history.forEach { item ->
             val role = item["role"]?.jsonPrimitive?.contentOrNull ?: "user"
             val content = item["content"]
             if (content is JsonPrimitive) {
                 messages.add(buildJsonObject { put("role", role); put("content", content.content) })
             } else if (content is JsonArray) {
-                messages.add(buildJsonObject { put("role", role); put("content", content.toString()) })
+                val text = content.mapNotNull { el ->
+                    val obj = el as? JsonObject ?: return@mapNotNull null
+                    obj["text"]?.jsonPrimitive?.contentOrNull
+                }.joinToString("\n")
+                if (text.isNotBlank()) {
+                    messages.add(buildJsonObject { put("role", role); put("content", text) })
+                }
             }
         }
         messages.add(buildJsonObject { put("role", "user"); put("content", userMessage) })
@@ -191,18 +215,32 @@ class ChatRepository @Inject constructor(
 
         repeat(MAX_TOOL_ROUNDS) {
             val response = callOpenAI(provider, messages)
+            val errorObj = response["error"]?.jsonObject
+            if (errorObj != null) {
+                val msg = errorObj["message"]?.jsonPrimitive?.contentOrNull ?: errorObj.toString()
+                error("${provider.name} API error: $msg")
+            }
             val choice = response["choices"]?.jsonArray?.firstOrNull()?.jsonObject
-                ?: error("Invalid OpenAI response choice")
-            val messageObj = choice["message"]?.jsonObject ?: error("Invalid OpenAI choice message")
+                ?: error("Invalid ${provider.name} response (no choices)")
+            val messageObj = choice["message"]?.jsonObject ?: error("Invalid ${provider.name} choice message")
             val finishReason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull
 
             messages.add(messageObj)
 
-            val textReply = messageObj["content"]?.jsonPrimitive?.contentOrNull
+            val textReply = messageObj["content"]?.let { el ->
+                when (el) {
+                    is JsonPrimitive -> el.contentOrNull
+                    is JsonArray -> el.mapNotNull { part ->
+                        (part as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
+                    }.joinToString("").ifBlank { null }
+                    else -> null
+                }
+            }
             val toolCalls = messageObj["tool_calls"]?.jsonArray
 
             if (toolCalls.isNullOrEmpty() || finishReason != "tool_calls") {
-                val finalReply = textReply ?: "(no reply)"
+                val finalReply = textReply?.trim().orEmpty()
+                if (finalReply.isBlank()) error("${provider.name} returned an empty reply")
                 history.add(buildJsonObject { put("role", "assistant"); put("content", finalReply) })
                 return finalReply
             }
@@ -227,7 +265,7 @@ class ChatRepository @Inject constructor(
                 )
             }
         }
-        return "Reached maximum tool execution rounds."
+        error("Reached maximum tool execution rounds.")
     }
 
     fun clearHistory() {

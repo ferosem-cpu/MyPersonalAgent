@@ -83,7 +83,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                 ?.firstOrNull()
             if (!text.isNullOrBlank()) {
                 input = text
-                Toast.makeText(context, "Voice recognized!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Voice recognized", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -91,14 +91,14 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
     fun launchSpeechRecognizer() {
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Listening... Speak your prompt")
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
         }
         runCatching {
             isListening = true
             speechLauncher.launch(intent)
         }.onFailure {
             isListening = false
-            Toast.makeText(context, "Voice recognizer unavailable on device", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Voice recognizer unavailable on this device", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -135,7 +135,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Error: $message",
+                        message,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.weight(1f),
                     )
@@ -145,9 +145,12 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
         }
 
         if (messages.isEmpty()) {
-            EmptyChatSuggestions(onPromptSelected = { prompt ->
-                input = prompt
-            })
+            EmptyChatSuggestions(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                onPromptSelected = { prompt -> input = prompt },
+            )
         } else {
             LazyColumn(
                 state = listState,
@@ -159,14 +162,11 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
             ) {
                 items(messages) { message -> ChatBubble(message) }
                 if (sending) {
-                    item {
-                        AssistantThinkingIndicator()
-                    }
+                    item { AssistantThinkingIndicator() }
                 }
             }
         }
 
-        // Bottom Message Input & Mic Bar
         Surface(
             tonalElevation = 3.dp,
             shadowElevation = 4.dp,
@@ -185,7 +185,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                     ) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Listening for speech...", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                        Text("Listening…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     }
                 }
 
@@ -196,7 +196,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
-                        placeholder = { Text("Message AI Assistant...") },
+                        placeholder = { Text("Message your agent…") },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -213,7 +213,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                             ) {
                                 Icon(
                                     imageVector = if (isListening) Icons.Filled.Mic else Icons.Filled.MicNone,
-                                    contentDescription = "Voice Input",
+                                    contentDescription = "Voice input",
                                     tint = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
@@ -224,7 +224,6 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Send Button with vector Material Send Icon
                     FilledIconButton(
                         onClick = {
                             if (input.isNotBlank() && !sending) {
@@ -241,7 +240,7 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send Message",
+                            contentDescription = "Send",
                         )
                     }
                 }
@@ -251,42 +250,38 @@ fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
 }
 
 @Composable
-private fun EmptyChatSuggestions(onPromptSelected: (String) -> Unit) {
+private fun EmptyChatSuggestions(onPromptSelected: (String) -> Unit, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(24.dp),
+        modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Spacer(modifier = Modifier.height(32.dp))
         Text(
-            "👋 Welcome to MyPersonalAgent",
+            "Your on-device agent",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            "Your on-device AI assistant with local tool execution.",
+            "Keys live in Settings (gear). Auto mode tries the next provider if one fails.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Try asking:", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.secondary)
+        Text("Try asking", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.secondary)
         Spacer(modifier = Modifier.height(12.dp))
 
         val promptSuggestions = listOf(
-            "📝 Add a todo to call dentist tomorrow at 4pm",
-            "⏱️ Log 30 minutes of client work",
-            "🧠 Remember my passport number is A1234567",
-            "📇 Recall notes about project deadline",
+            "Add a todo to call the dentist tomorrow at 4pm",
+            "Log 30 minutes of client work",
+            "Remember that my passport is in the desk drawer",
+            "What's on my open to-do list?",
         )
 
         promptSuggestions.forEach { prompt ->
             AssistChip(
-                onClick = { onPromptSelected(prompt.substringAfter(" ")) },
+                onClick = { onPromptSelected(prompt) },
                 label = { Text(prompt) },
                 colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 modifier = Modifier
@@ -309,26 +304,36 @@ private fun ChatBubble(message: ChatMessage) {
             Spacer(modifier = Modifier.width(6.dp))
         }
 
-        Card(
-            modifier = Modifier.widthIn(max = 300.dp),
-            shape = RoundedCornerShape(
-                topStart = 18.dp,
-                topEnd = 18.dp,
-                bottomStart = if (message.fromUser) 18.dp else 4.dp,
-                bottomEnd = if (message.fromUser) 4.dp else 18.dp,
-            ),
-            colors = if (message.fromUser) {
-                CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            } else {
-                CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-            },
-        ) {
-            Text(
-                text = message.text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (message.fromUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            )
+        Column(horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start) {
+            Card(
+                modifier = Modifier.widthIn(max = 300.dp),
+                shape = RoundedCornerShape(
+                    topStart = 18.dp,
+                    topEnd = 18.dp,
+                    bottomStart = if (message.fromUser) 18.dp else 4.dp,
+                    bottomEnd = if (message.fromUser) 4.dp else 18.dp,
+                ),
+                colors = if (message.fromUser) {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                } else {
+                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                },
+            ) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (message.fromUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                )
+            }
+            if (!message.fromUser && !message.provider.isNullOrBlank()) {
+                Text(
+                    message.provider.replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                )
+            }
         }
 
         if (message.fromUser) {
@@ -347,7 +352,7 @@ private fun AvatarBadge(isUser: Boolean) {
             .background(if (isUser) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        Text(if (isUser) "👤" else "🤖", style = MaterialTheme.typography.bodySmall)
+        Text(if (isUser) "You" else "AI", style = MaterialTheme.typography.labelSmall)
     }
 }
 
@@ -371,7 +376,7 @@ private fun AssistantThinkingIndicator() {
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Thinking & running tools...", style = MaterialTheme.typography.bodySmall)
+                Text("Thinking…", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

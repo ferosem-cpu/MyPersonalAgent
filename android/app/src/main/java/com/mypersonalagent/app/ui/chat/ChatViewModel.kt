@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class ChatMessage(val text: String, val fromUser: Boolean)
+data class ChatMessage(
+    val text: String,
+    val fromUser: Boolean,
+    val provider: String? = null,
+)
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -33,7 +37,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.send(text) }
                 .onSuccess { reply ->
-                    _messages.value = _messages.value + ChatMessage(reply, fromUser = false)
+                    _messages.value = _messages.value + ChatMessage(reply.text, fromUser = false, provider = reply.provider)
                     _error.value = null
                 }
                 .onFailure { _error.value = it.message ?: "Failed to reach the agent" }
