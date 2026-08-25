@@ -15,8 +15,8 @@ android {
         applicationId = "com.mypersonalagent.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -72,4 +72,5 @@ dependencies {
     implementation(libs.work.runtime.ktx)
     implementation(libs.datastore.preferences)
     implementation(libs.play.services.auth)
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

@@ -25,6 +25,9 @@ class ContactsViewModel @Inject constructor(
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
+    private val _vcf = MutableStateFlow<String?>(null)
+    val vcf: StateFlow<String?> = _vcf.asStateFlow()
+
     init {
         refresh()
     }
@@ -37,6 +40,36 @@ class ContactsViewModel @Inject constructor(
                 .onFailure { _error.value = it.message ?: "Failed to load contacts" }
             _loading.value = false
         }
+    }
+
+    fun save(name: String, phone: String, email: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            runCatching { repository.save(name, phone, email) }
+                .onSuccess { refresh() }
+                .onFailure { _error.value = it.message ?: "Failed to save contact" }
+        }
+    }
+
+    fun delete(id: String?) {
+        if (id.isNullOrBlank()) return
+        viewModelScope.launch {
+            runCatching { repository.delete(id) }
+                .onSuccess { refresh() }
+                .onFailure { _error.value = it.message ?: "Failed to delete contact" }
+        }
+    }
+
+    fun exportVcf() {
+        viewModelScope.launch {
+            runCatching { repository.exportVcf() }
+                .onSuccess { _vcf.value = it }
+                .onFailure { _error.value = it.message ?: "Failed to export" }
+        }
+    }
+
+    fun clearVcf() {
+        _vcf.value = null
     }
 
     fun clearError() {

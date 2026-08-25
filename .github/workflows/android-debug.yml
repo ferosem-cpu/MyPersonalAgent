@@ -32,15 +32,19 @@ jobs:
       - name: Publish downloadable release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-android
-          name: Android standalone v0.2.0
+          tag_name: v0.3.0-android
+          name: Android standalone v0.3.0
           body: |
-            Debug APK for the standalone on-device agent.
+            Debug APK for the standalone on-device agent (v0.3.0).
 
-            Install: download `app-debug.apk`, allow unknown sources if asked, then open the file.
+            New: share/drop files into the app → Pictures/Documents/Code/Others in your chosen Google Drive folder.
+            Also: add contacts, export vCard, snooze todos, due dates, boot reminder restore.
 
-            This build replaces the previous debug install (same debug key).
+            Install: download `app-debug.apk` or the zip, allow unknown sources if asked.
 
-            After install: open Settings (gear) → paste at least one API key → Save all keys → Chat.
+            After install:
+            1. Folder icon (top bar) → Choose Drive folder → menu → Drive → MyPersonalAgent
+            2. Gear → paste API key → Save all keys
+            3. Share any file to MyPersonalAgent from another app
           files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true

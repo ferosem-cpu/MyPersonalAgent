@@ -198,4 +198,17 @@ Verified with both `:app:compileDebugKotlin` and `:app:assembleDebug` — clean 
 3. If the OAuth consent screen is still in "Testing" mode, add your own Google account as a test user (Audience → Test users) or it'll reject the sign-in.
 4. Note: this SHA-1 is the **debug** keystore's — a release build (signed differently) will need its own SHA-1 added the same way when you get there.
 
+### 2026-08-25 — File drop, contacts CRUD, Drive folder, missing phone features
+
+Phone app was missing several original capabilities that lived only on the laptop Telegram bot.
+
+Enabled in v0.3.0:
+- Share/drop any file into the app (`ACTION_SEND` / `SEND_MULTIPLE`) → classified into Pictures / Documents / Code / Others, saved on-device, copied into a user-picked Drive folder via Storage Access Framework (works without Google Cloud OAuth).
+- Optional Google sign-in now writes a visible `MyPersonalAgent` Drive folder (not hidden appDataFolder) and can also upload dropped files.
+- Files screen (folder icon in the top bar): pick Drive folder, add files, see ingest status.
+- Contacts: add, delete, export vCard (was list-only).
+- Chat tools: snooze_todo, add_contact, list_contacts, list_files, open_app.
+- Todos: due date on add, snooze 1 day.
+- BootReceiver re-runs reminder check after reboot.
+
 **Next up:** Phase F (cleanup — remove the now-dead server URL/API token settings fields and `ApiService`/interceptor plumbing) is the only remaining item from the original standalone plan. WhatsApp remains an open decision. The web interface is parked, not scoped — revisit if/when wanted.

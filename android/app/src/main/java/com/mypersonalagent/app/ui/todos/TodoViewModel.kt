@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.OffsetDateTime
 import javax.inject.Inject
 
 @HiltViewModel
@@ -58,6 +59,14 @@ class TodoViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { repository.delete(id) }
                 .onFailure { _error.value = it.message ?: "Failed to delete to-do" }
+        }
+    }
+
+    fun snoozeTomorrow(id: String) {
+        viewModelScope.launch {
+            val until = OffsetDateTime.now().plusDays(1).toString()
+            runCatching { repository.snooze(id, until) }
+                .onFailure { _error.value = it.message ?: "Failed to snooze" }
         }
     }
 

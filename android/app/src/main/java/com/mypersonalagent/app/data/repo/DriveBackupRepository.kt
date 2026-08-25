@@ -30,6 +30,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -38,8 +39,6 @@ private fun JsonElement.jsonObjectOrNull(): JsonObject? = this as? JsonObject
 private fun JsonElement.jsonArrayOrNull(): JsonArray? = this as? JsonArray
 private fun JsonElement.jsonPrimitiveOrNull(): String? = (this as? JsonPrimitive)?.contentOrNull
 
-/** Snapshot format written to Drive. Kept intentionally simple/flat - this is a backup format,
- * not an API contract, so it can just mirror the Room entities directly. */
 @kotlinx.serialization.Serializable
 private data class BackupSnapshot(
     val version: Int = 1,
@@ -49,18 +48,12 @@ private data class BackupSnapshot(
     val contacts: List<ContactEntity>,
 )
 
+private const val ROOT_FOLDER_NAME = "MyPersonalAgent"
 private const val BACKUP_FILE_NAME = "mypersonalagent_backup.json"
-private const val DRIVE_UPLOAD_URL =
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id&spaces=appDataFolder"
+private const val DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id"
 private const val DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files"
+private const val FOLDER_MIME = "application/vnd.google-apps.folder"
 
-/**
- * Standalone (2026-08-12 pivot, Phase E): periodic + on-demand backup of all local data to the
- * user's own Google Drive (appDataFolder - invisible in their normal Drive UI, scoped to this
- * app only via drive.file). Restorable on a fresh install. Best-effort: failures are surfaced
- * as exceptions to the caller (Settings screen / BackupWorker) rather than swallowed, since
- * unlike Telegram this is something the user explicitly asked to rely on for data safety.
- */
 @Singleton
 class DriveBackupRepository @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -76,17 +69,13 @@ class DriveBackupRepository @Inject constructor(
 
     fun isSignedIn(): Boolean = currentAccount() != null
 
-    /** Blocking network call - always invoke from a background dispatcher. */
     private suspend fun accessToken(account: Account): String = withContext(Dispatchers.IO) {
         GoogleAuthUtil.getToken(context, account, "oauth2:$DRIVE_FILE_SCOPE")
     }
 
-    /** Uploads a fresh snapshot, overwriting the previous backup if one exists. Returns the
-     * Drive file id. Throws on any failure (no signed-in account, network error, API error). */
     suspend fun backupNow(): String {
         val account = currentAccount()?.account ?: error("Not signed in to Google Drive.")
         val token = accessToken(account)
-
         val snapshot = BackupSnapshot(
             todos = todoDao.observeAll().first(),
             entries = entryDao.observeAll().first(),
@@ -94,23 +83,21 @@ class DriveBackupRepository @Inject constructor(
             contacts = contactDao.observeAll().first(),
         )
         val payload = json.encodeToString(snapshot)
-
-        val existingId = findExistingBackupFileId(token)
+        val rootId = getOrCreateFolder(token, ROOT_FOLDER_NAME, parentId = null)
+        val existingId = findChildFileId(token, rootId, BACKUP_FILE_NAME)
         return if (existingId != null) {
             updateFile(token, existingId, payload)
             existingId
         } else {
-            createFile(token, payload)
+            createFile(token, payload, BACKUP_FILE_NAME, "application/json", rootId)
         }
     }
 
-    /** Downloads and restores the latest backup into Room. Existing local rows with the same
-     * id are overwritten (last-write-wins is irrelevant here - this is an explicit user action,
-     * not an automatic merge). Returns the number of records restored. Throws on failure. */
     suspend fun restoreLatest(): Int {
         val account = currentAccount()?.account ?: error("Not signed in to Google Drive.")
         val token = accessToken(account)
-        val fileId = findExistingBackupFileId(token) ?: error("No backup found on Drive.")
+        val rootId = getOrCreateFolder(token, ROOT_FOLDER_NAME, parentId = null)
+        val fileId = findChildFileId(token, rootId, BACKUP_FILE_NAME) ?: error("No backup found in Drive/MyPersonalAgent.")
 
         val body = withContext(Dispatchers.IO) {
             val request = Request.Builder()
@@ -124,51 +111,116 @@ class DriveBackupRepository @Inject constructor(
             }
         }
         val snapshot = json.decodeFromString(BackupSnapshot.serializer(), body)
-
         snapshot.todos.forEach { todoDao.upsert(it) }
         snapshot.entries.forEach { entryDao.upsert(it) }
         snapshot.notes.forEach { noteDao.upsert(it) }
         snapshot.contacts.forEach { contactDao.upsert(it) }
-
         return snapshot.todos.size + snapshot.entries.size + snapshot.notes.size + snapshot.contacts.size
     }
 
-    private suspend fun findExistingBackupFileId(token: String): String? = withContext(Dispatchers.IO) {
-        val url = "$DRIVE_FILES_URL?spaces=appDataFolder&q=name='$BACKUP_FILE_NAME'&fields=files(id)"
-        val request = Request.Builder().url(url).addHeader("Authorization", "Bearer $token").get().build()
-        httpClient.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) error("Drive list failed: ${resp.code}")
-            val body = resp.body?.string() ?: return@use null
-            val files = json.parseToJsonElement(body).let {
-                it.jsonObjectOrNull()?.get("files")?.jsonArrayOrNull()
-            } ?: return@use null
-            files.firstOrNull()?.jsonObjectOrNull()?.get("id")?.jsonPrimitiveOrNull()
+    suspend fun uploadUserFile(name: String, bytes: ByteArray, mimeType: String, category: String): String {
+        val account = currentAccount()?.account ?: error("Not signed in to Google Drive.")
+        val token = accessToken(account)
+        val rootId = getOrCreateFolder(token, ROOT_FOLDER_NAME, parentId = null)
+        val folderId = getOrCreateFolder(token, category, parentId = rootId)
+        val existing = findChildFileId(token, folderId, name)
+        return if (existing != null) {
+            updateBytes(token, existing, bytes, mimeType)
+            existing
+        } else {
+            createBytes(token, bytes, name, mimeType, folderId)
         }
     }
 
-    private suspend fun createFile(token: String, payload: String) = withContext(Dispatchers.IO) {
-        val metadata = """{"name":"$BACKUP_FILE_NAME","parents":["appDataFolder"]}"""
+    private suspend fun getOrCreateFolder(token: String, name: String, parentId: String?): String = withContext(Dispatchers.IO) {
+        val parentClause = if (parentId != null) "and '$parentId' in parents" else "and 'root' in parents"
+        val q = "name = '$name' and mimeType = '$FOLDER_MIME' and trashed = false $parentClause"
+        val encoded = URLEncoder.encode(q, Charsets.UTF_8.name())
+        val request = Request.Builder()
+            .url("$DRIVE_FILES_URL?q=$encoded&spaces=drive&fields=files(id,name)")
+            .addHeader("Authorization", "Bearer $token")
+            .get()
+            .build()
+        val existing = httpClient.newCall(request).execute().use { resp ->
+            val body = resp.body?.string() ?: return@use null
+            if (!resp.isSuccessful) return@use null
+            json.parseToJsonElement(body).jsonObjectOrNull()
+                ?.get("files")?.jsonArrayOrNull()
+                ?.firstOrNull()?.jsonObjectOrNull()
+                ?.get("id")?.jsonPrimitiveOrNull()
+        }
+        if (existing != null) return@withContext existing
+
+        val metadata = buildString {
+            append("{\"name\":")
+            append(JsonPrimitive(name))
+            append(",\"mimeType\":\"$FOLDER_MIME\"")
+            if (parentId != null) append(",\"parents\":[\"$parentId\"]")
+            append("}")
+        }
+        val create = Request.Builder()
+            .url("$DRIVE_FILES_URL?fields=id")
+            .addHeader("Authorization", "Bearer $token")
+            .post(metadata.toRequestBody("application/json".toMediaType()))
+            .build()
+        httpClient.newCall(create).execute().use { resp ->
+            val body = resp.body?.string() ?: error("Empty folder create")
+            if (!resp.isSuccessful) error("Drive folder create failed: ${resp.code} $body")
+            json.parseToJsonElement(body).jsonObjectOrNull()?.get("id")?.jsonPrimitiveOrNull()
+                ?: error("Folder create missing id")
+        }
+    }
+
+    private suspend fun findChildFileId(token: String, parentId: String, name: String): String? = withContext(Dispatchers.IO) {
+        val q = "name = '$name' and '$parentId' in parents and trashed = false"
+        val encoded = URLEncoder.encode(q, Charsets.UTF_8.name())
+        val request = Request.Builder()
+            .url("$DRIVE_FILES_URL?q=$encoded&spaces=drive&fields=files(id)")
+            .addHeader("Authorization", "Bearer $token")
+            .get()
+            .build()
+        httpClient.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) return@use null
+            val body = resp.body?.string() ?: return@use null
+            json.parseToJsonElement(body).jsonObjectOrNull()
+                ?.get("files")?.jsonArrayOrNull()
+                ?.firstOrNull()?.jsonObjectOrNull()
+                ?.get("id")?.jsonPrimitiveOrNull()
+        }
+    }
+
+    private suspend fun createFile(token: String, payload: String, name: String, mime: String, parentId: String): String {
+        return createBytes(token, payload.toByteArray(Charsets.UTF_8), name, mime, parentId)
+    }
+
+    private suspend fun createBytes(token: String, bytes: ByteArray, name: String, mime: String, parentId: String): String = withContext(Dispatchers.IO) {
+        val metadata = "{\"name\":${JsonPrimitive(name)},\"parents\":[\"$parentId\"]}"
         val multipart = MultipartBody.Builder().setType(MultipartBody.MIXED)
             .addPart(metadata.toRequestBody("application/json".toMediaType()))
-            .addPart(payload.toRequestBody("application/json".toMediaType()))
+            .addPart(bytes.toRequestBody(mime.toMediaType()))
             .build()
-        val request = Request.Builder().url(DRIVE_UPLOAD_URL)
+        val request = Request.Builder()
+            .url(DRIVE_UPLOAD_URL)
             .addHeader("Authorization", "Bearer $token")
             .post(multipart)
             .build()
         httpClient.newCall(request).execute().use { resp ->
-            if (!resp.isSuccessful) error("Drive upload failed: ${resp.code} ${resp.body?.string()}")
             val body = resp.body?.string() ?: error("Empty upload response")
+            if (!resp.isSuccessful) error("Drive upload failed: ${resp.code} $body")
             json.parseToJsonElement(body).jsonObjectOrNull()?.get("id")?.jsonPrimitiveOrNull()
                 ?: error("Upload response missing file id")
         }
     }
 
-    private suspend fun updateFile(token: String, fileId: String, payload: String) = withContext(Dispatchers.IO) {
+    private suspend fun updateFile(token: String, fileId: String, payload: String) {
+        updateBytes(token, fileId, payload.toByteArray(Charsets.UTF_8), "application/json")
+    }
+
+    private suspend fun updateBytes(token: String, fileId: String, bytes: ByteArray, mime: String) = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media")
             .addHeader("Authorization", "Bearer $token")
-            .patch(payload.toRequestBody("application/json".toMediaType()))
+            .patch(bytes.toRequestBody(mime.toMediaType()))
             .build()
         httpClient.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) error("Drive update failed: ${resp.code} ${resp.body?.string()}")

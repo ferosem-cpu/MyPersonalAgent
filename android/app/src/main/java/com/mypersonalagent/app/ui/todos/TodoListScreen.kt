@@ -96,6 +96,7 @@ fun TodoListScreen(viewModel: TodoViewModel = hiltViewModel()) {
                                 todo = todo,
                                 onComplete = { viewModel.completeTodo(todo.id) },
                                 onDelete = { viewModel.deleteTodo(todo.id) },
+                                onSnooze = { viewModel.snoozeTomorrow(todo.id) },
                             )
                         }
                     }
@@ -106,8 +107,8 @@ fun TodoListScreen(viewModel: TodoViewModel = hiltViewModel()) {
         if (showAddDialog) {
             AddTodoDialog(
                 onDismiss = { showAddDialog = false },
-                onConfirm = { title, project ->
-                    viewModel.addTodo(title, project, due = null)
+                onConfirm = { title, project, due ->
+                    viewModel.addTodo(title, project, due = due)
                     showAddDialog = false
                 },
             )
@@ -117,7 +118,7 @@ fun TodoListScreen(viewModel: TodoViewModel = hiltViewModel()) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeableTodoRow(todo: TodoEntity, onComplete: () -> Unit, onDelete: () -> Unit) {
+private fun SwipeableTodoRow(todo: TodoEntity, onComplete: () -> Unit, onDelete: () -> Unit, onSnooze: () -> Unit) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -157,12 +158,12 @@ private fun SwipeableTodoRow(todo: TodoEntity, onComplete: () -> Unit, onDelete:
             }
         },
     ) {
-        TodoRow(todo = todo, onComplete = onComplete)
+        TodoRow(todo = todo, onComplete = onComplete, onSnooze = onSnooze)
     }
 }
 
 @Composable
-private fun TodoRow(todo: TodoEntity, onComplete: () -> Unit) {
+private fun TodoRow(todo: TodoEntity, onComplete: () -> Unit, onSnooze: () -> Unit) {
     val overdue = isOverdue(todo)
     Card(
         modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -184,8 +185,9 @@ private fun TodoRow(todo: TodoEntity, onComplete: () -> Unit) {
                 DueDateChip(todo)
             }
             if (todo.status != "done") {
-                Button(onClick = onComplete, modifier = Modifier.padding(top = 8.dp)) {
-                    Text("Done")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    Button(onClick = onComplete) { Text("Done") }
+                    Button(onClick = onSnooze) { Text("Snooze 1d") }
                 }
             }
         }
@@ -221,9 +223,10 @@ private fun parseInstant(raw: String): Instant? = try {
 }
 
 @Composable
-private fun AddTodoDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+private fun AddTodoDialog(onDismiss: () -> Unit, onConfirm: (String, String, String?) -> Unit) {
     var title by remember { mutableStateOf("") }
     var project by remember { mutableStateOf("") }
+    var due by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -232,10 +235,16 @@ private fun AddTodoDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") })
                 OutlinedTextField(value = project, onValueChange = { project = it }, label = { Text("Project") })
+                OutlinedTextField(
+                    value = due,
+                    onValueChange = { due = it },
+                    label = { Text("Due (optional)") },
+                    placeholder = { Text("2026-08-26T16:00") },
+                )
             }
         },
         confirmButton = {
-            Button(onClick = { if (title.isNotBlank()) onConfirm(title, project) }) {
+            Button(onClick = { if (title.isNotBlank()) onConfirm(title, project, due.trim().ifBlank { null }) }) {
                 Text("Add")
             }
         },

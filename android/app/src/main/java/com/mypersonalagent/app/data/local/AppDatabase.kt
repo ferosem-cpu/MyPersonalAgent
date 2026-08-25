@@ -6,8 +6,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [TodoEntity::class, EntryEntity::class, NoteEntity::class, ContactEntity::class],
-    version = 3,
+    entities = [TodoEntity::class, EntryEntity::class, NoteEntity::class, ContactEntity::class, FileEntity::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -15,6 +15,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun entryDao(): EntryDao
     abstract fun noteDao(): NoteDao
     abstract fun contactDao(): ContactDao
+    abstract fun fileDao(): FileDao
 }
 
 val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -23,7 +24,6 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
-/** Adds local-only storage for notes and contacts (previously server-only, no local table existed). */
 val MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
@@ -36,7 +36,7 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
                 updated TEXT NOT NULL,
                 deleted INTEGER NOT NULL DEFAULT 0
             )
-            """.trimIndent()
+            """.trimIndent(),
         )
         db.execSQL(
             """
@@ -54,7 +54,26 @@ val MIGRATION_2_3 = object : Migration(2, 3) {
                 updated TEXT NOT NULL,
                 deleted INTEGER NOT NULL DEFAULT 0
             )
-            """.trimIndent()
+            """.trimIndent(),
+        )
+    }
+}
+
+val MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS files (
+                id TEXT NOT NULL PRIMARY KEY,
+                displayName TEXT NOT NULL,
+                category TEXT NOT NULL,
+                mimeType TEXT NOT NULL,
+                localPath TEXT NOT NULL,
+                sizeBytes INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT 'share',
+                created TEXT NOT NULL
+            )
+            """.trimIndent(),
         )
     }
 }

@@ -101,6 +101,9 @@ class SettingsViewModel @Inject constructor(
     val appAliases: StateFlow<Map<String, String>> = settings.appAliases
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    val driveFolderUri: StateFlow<String?> = settings.driveFolderUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     private val _launchResult = MutableStateFlow<String?>(null)
     val launchResult: StateFlow<String?> = _launchResult
 
@@ -237,6 +240,10 @@ class SettingsViewModel @Inject constructor(
 
     fun driveSignOut() {
         googleSignInClient.signOut().addOnCompleteListener { _driveAccountEmail.value = null }
+    }
+
+    fun setDriveFolderUri(uri: String) {
+        viewModelScope.launch { settings.setDriveFolderUri(uri) }
     }
 
     fun backupNow() {

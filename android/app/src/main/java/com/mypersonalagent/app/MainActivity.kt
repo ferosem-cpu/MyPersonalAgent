@@ -1,7 +1,9 @@
 package com.mypersonalagent.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -19,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lightbulb
@@ -35,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -48,26 +52,33 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.mypersonalagent.app.data.repo.FileInboxRepository
+import com.mypersonalagent.app.data.repo.IncomingShareBus
 import com.mypersonalagent.app.notifications.ReminderScheduler
 import com.mypersonalagent.app.ui.AppShellViewModel
 import com.mypersonalagent.app.ui.chat.ChatScreen
 import com.mypersonalagent.app.ui.contacts.ContactsScreen
+import com.mypersonalagent.app.ui.files.FilesScreen
 import com.mypersonalagent.app.ui.log.QuickLogScreen
 import com.mypersonalagent.app.ui.memory.MemoryScreen
 import com.mypersonalagent.app.ui.settings.SettingsScreen
 import com.mypersonalagent.app.ui.theme.MyPersonalAgentTheme
 import com.mypersonalagent.app.ui.todos.TodoListScreen
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var reminderScheduler: ReminderScheduler
+    @Inject lateinit var fileInbox: FileInboxRepository
+    @Inject lateinit var shareBus: IncomingShareBus
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
@@ -75,6 +86,12 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         reminderScheduler.requestImmediateCheck()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncoming(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,8 +103,43 @@ class MainActivity : ComponentActivity() {
         ) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        handleIncoming(intent)
         setContent {
             MyPersonalAgentApp()
+        }
+    }
+
+    private fun handleIncoming(intent: Intent?) {
+        if (intent == null) return
+        val uris = mutableListOf<Uri>()
+        when (intent.action) {
+            Intent.ACTION_SEND -> extraUri(intent)?.let { uris.add(it) }
+            Intent.ACTION_SEND_MULTIPLE -> extraUriList(intent).let { uris.addAll(it) }
+        }
+        if (uris.isEmpty()) return
+        lifecycleScope.launch {
+            uris.forEach { uri ->
+                runCatching { fileInbox.ingestUri(uri, source = "share") }
+                    .onFailure { shareBus.emit("Could not save shared file: ${it.message}") }
+            }
+        }
+    }
+
+    private fun extraUri(intent: Intent): Uri? {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+    }
+
+    private fun extraUriList(intent: Intent): List<Uri> {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
         }
     }
 }
@@ -106,6 +158,7 @@ private val routeTitles = mapOf(
     "log" to "Work log",
     "memory" to "Memory",
     "contacts" to "Contacts",
+    "files" to "Files",
     "settings" to "Settings",
 )
 
@@ -118,7 +171,15 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route ?: BottomNavDestination.Chat.route
             val avatarUri by shellViewModel.avatarUri.collectAsState()
-            val showBottomBar = currentRoute != "settings"
+            val showBottomBar = currentRoute != "settings" && currentRoute != "files"
+
+            LaunchedEffect(Unit) {
+                shellViewModel.shareEvents.collect {
+                    navController.navigate("files") {
+                        launchSingleTop = true
+                    }
+                }
+            }
 
             Scaffold(
                 topBar = {
@@ -130,6 +191,15 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                             )
                         },
                         actions = {
+                            IconButton(
+                                onClick = {
+                                    if (currentRoute != "files") {
+                                        navController.navigate("files")
+                                    }
+                                },
+                            ) {
+                                Icon(Icons.Filled.Folder, contentDescription = "Files")
+                            }
                             IconButton(
                                 onClick = {
                                     if (currentRoute != "settings") {
@@ -185,6 +255,7 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                     composable(BottomNavDestination.Log.route) { QuickLogScreen() }
                     composable(BottomNavDestination.Memory.route) { MemoryScreen() }
                     composable(BottomNavDestination.Contacts.route) { ContactsScreen() }
+                    composable("files") { FilesScreen() }
                     composable("settings") { SettingsScreen() }
                 }
             }

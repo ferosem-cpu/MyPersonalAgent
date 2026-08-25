@@ -7,6 +7,8 @@ import com.mypersonalagent.app.data.local.ContactDao
 import com.mypersonalagent.app.data.local.EntryDao
 import com.mypersonalagent.app.data.local.MIGRATION_1_2
 import com.mypersonalagent.app.data.local.MIGRATION_2_3
+import com.mypersonalagent.app.data.local.FileDao
+import com.mypersonalagent.app.data.local.MIGRATION_3_4
 import com.mypersonalagent.app.data.local.NoteDao
 import com.mypersonalagent.app.data.local.TodoDao
 import com.mypersonalagent.app.data.remote.ApiService
@@ -157,7 +159,7 @@ object AppModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "mypersonalagent.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -171,4 +173,7 @@ object AppModule {
 
     @Provides
     fun provideContactDao(db: AppDatabase): ContactDao = db.contactDao()
+
+    @Provides
+    fun provideFileDao(db: AppDatabase): FileDao = db.fileDao()
 }

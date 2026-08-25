@@ -1,5 +1,6 @@
 package com.mypersonalagent.app.ui.settings
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -70,10 +72,24 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val launchResult by viewModel.launchResult.collectAsState()
     val driveAccountEmail by viewModel.driveAccountEmail.collectAsState()
     val backupStatus by viewModel.backupStatus.collectAsState()
+    val driveFolderUri by viewModel.driveFolderUri.collectAsState()
+    val context = LocalContext.current
 
     val driveSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result -> viewModel.handleDriveSignInResult(result.data) }
+
+    val driveFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            viewModel.setDriveFolderUri(uri.toString())
+        }
+    }
 
     var hydrated by remember { mutableStateOf(false) }
     var telegramBotToken by remember { mutableStateOf("") }
@@ -211,7 +227,23 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             }
         }
 
-        SettingsCard(title = "Google Drive backup", subtitle = "Optional private backup of todos, log, notes, and contacts.") {
+        SettingsCard(
+            title = "Google Drive",
+            subtitle = "Drop/share files into the app to copy them into Pictures, Documents, Code, or Others. First choose the Drive folder. Optional Google sign-in also backs up todos/log/notes/contacts into a visible MyPersonalAgent folder.",
+        ) {
+            Text(
+                if (driveFolderUri.isNullOrBlank()) "File drop folder: not set"
+                else "File drop folder: connected",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Button(onClick = { driveFolderLauncher.launch(null) }, modifier = Modifier.fillMaxWidth()) {
+                Text(if (driveFolderUri.isNullOrBlank()) "Choose Drive folder" else "Change Drive folder")
+            }
+            Text(
+                "In the system picker: menu → Drive → MyPersonalAgent (create it if needed). This is what makes file drop work, even if Google sign-in fails.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (driveAccountEmail != null) {
                 Text("Signed in as $driveAccountEmail", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -220,8 +252,8 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 }
                 TextButton(onClick = { viewModel.driveSignOut() }) { Text("Sign out") }
             } else {
-                Button(onClick = { driveSignInLauncher.launch(viewModel.driveSignInIntent()) }) {
-                    Text("Sign in to Google Drive")
+                OutlinedButton(onClick = { driveSignInLauncher.launch(viewModel.driveSignInIntent()) }) {
+                    Text("Optional: Google sign-in for JSON backup")
                 }
             }
             when (val status = backupStatus) {

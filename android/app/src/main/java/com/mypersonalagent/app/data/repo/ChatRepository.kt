@@ -1,5 +1,8 @@
 package com.mypersonalagent.app.data.repo
 
+import android.content.Context
+import android.content.Intent
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -27,10 +30,12 @@ private const val MAX_TOOL_ROUNDS = 6
 
 private const val SYSTEM_PROMPT = """
 You are the on-device assistant for MyPersonalAgent, a personal productivity app. You can
-create and manage the user's todos, log work entries, and save/recall notes using the tools
-provided. Everything you do stays on this phone - there is no server. Be concise. When you
-take an action (add a todo, log work, save a note), confirm briefly what you did. When you
-need an id for complete_todo, call list_todos first if you don't already have it from context.
+create and manage the user's todos, log work entries, save/recall notes, save contacts,
+list files they dropped into the app, and open installed apps using saved aliases.
+Everything you do stays on this phone. Be concise. When you take an action, confirm briefly
+what you did. When you need an id for complete_todo or snooze_todo, call list_todos first.
+Dropped files are stored on the phone and copied into the user's Google Drive folder
+(Pictures / Documents / Code / Others) when they have chosen that folder.
 """
 
 data class ProviderConfig(
@@ -49,10 +54,13 @@ data class ChatReply(
 @Singleton
 class ChatRepository @Inject constructor(
     @Named("anthropic") private val httpClient: OkHttpClient,
+    @ApplicationContext private val appContext: Context,
     private val settings: SettingsRepository,
     private val todoRepository: TodoRepository,
     private val entryRepository: EntryRepository,
     private val memoryRepository: MemoryRepository,
+    private val contactsRepository: ContactsRepository,
+    private val fileInbox: FileInboxRepository,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -318,6 +326,47 @@ class ChatRepository @Inject constructor(
             val notes = memoryRepository.recall(query)
             if (notes.isEmpty()) "No matching notes." else notes.joinToString("\n") { "- ${it.text}" }
         }
+        "snooze_todo" -> {
+            val id = input["id"]?.jsonPrimitive?.contentOrNull ?: return "Missing 'id'."
+            val until = input["until"]?.jsonPrimitive?.contentOrNull ?: return "Missing 'until' (ISO-8601 datetime)."
+            todoRepository.snooze(id, until)
+            "Snoozed until $until."
+        }
+        "add_contact" -> {
+            val name = input["name"]?.jsonPrimitive?.contentOrNull ?: return "Missing 'name'."
+            val saved = contactsRepository.save(
+                name = name,
+                phone = input["phone"]?.jsonPrimitive?.contentOrNull,
+                email = input["email"]?.jsonPrimitive?.contentOrNull,
+            )
+            "Saved contact ${saved.name}."
+        }
+        "list_contacts" -> {
+            val query = input["query"]?.jsonPrimitive?.contentOrNull
+            val contacts = contactsRepository.list(query)
+            if (contacts.isEmpty()) "No contacts." else contacts.joinToString("\n") { c ->
+                buildString {
+                    append("- ${c.name}")
+                    c.phoneNumber?.let { append(" · $it") }
+                    c.email?.let { append(" · $it") }
+                }
+            }
+        }
+        "list_files" -> {
+            val files = fileInbox.files.first()
+            if (files.isEmpty()) "No files dropped yet."
+            else files.joinToString("\n") { "- ${it.displayName} (${it.category})" }
+        }
+        "open_app" -> {
+            val alias = input["name"]?.jsonPrimitive?.contentOrNull ?: return "Missing 'name'."
+            val aliases = settings.appAliases.first()
+            val packageName = aliases[alias.trim().lowercase()] ?: alias.trim()
+            val intent = appContext.packageManager.getLaunchIntentForPackage(packageName)
+                ?: return "Couldn't find an installed app for '$packageName'. Save an alias in Settings first."
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            appContext.startActivity(intent)
+            "Opened $packageName."
+        }
         else -> "Unknown tool: $name"
     }
 
@@ -400,6 +449,22 @@ class ChatRepository @Inject constructor(
             add(anthropicTool("recall", "Search saved notes.") {
                 stringProp("query", "Search text.")
             })
+            add(anthropicTool("snooze_todo", "Snooze a todo until a datetime. Call list_todos first for the id.") {
+                stringProp("id", "The todo's id.", required = true)
+                stringProp("until", "ISO-8601 datetime to snooze until.", required = true)
+            })
+            add(anthropicTool("add_contact", "Save a contact.") {
+                stringProp("name", "Full name.", required = true)
+                stringProp("phone", "Phone number.")
+                stringProp("email", "Email address.")
+            })
+            add(anthropicTool("list_contacts", "List or search saved contacts.") {
+                stringProp("query", "Optional name/phone/email filter.")
+            })
+            add(anthropicTool("list_files", "List files the user dropped into the app.") {})
+            add(anthropicTool("open_app", "Open an installed app by alias or package name.") {
+                stringProp("name", "Alias or package name.", required = true)
+            })
         }
 
         private val OPENAI_TOOLS = buildJsonArray {
@@ -425,6 +490,22 @@ class ChatRepository @Inject constructor(
             })
             add(openAiTool("recall", "Search saved notes.") {
                 stringProp("query", "Search text.")
+            })
+            add(openAiTool("snooze_todo", "Snooze a todo until a datetime. Call list_todos first for the id.") {
+                stringProp("id", "The todo's id.", required = true)
+                stringProp("until", "ISO-8601 datetime to snooze until.", required = true)
+            })
+            add(openAiTool("add_contact", "Save a contact.") {
+                stringProp("name", "Full name.", required = true)
+                stringProp("phone", "Phone number.")
+                stringProp("email", "Email address.")
+            })
+            add(openAiTool("list_contacts", "List or search saved contacts.") {
+                stringProp("query", "Optional name/phone/email filter.")
+            })
+            add(openAiTool("list_files", "List files the user dropped into the app.") {})
+            add(openAiTool("open_app", "Open an installed app by alias or package name.") {
+                stringProp("name", "Alias or package name.", required = true)
             })
         }
 

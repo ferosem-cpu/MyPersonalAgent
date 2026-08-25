@@ -41,6 +41,7 @@ class SettingsRepository @Inject constructor(
         val OPENROUTER_MODEL = stringPreferencesKey("openrouter_model")
         val GROK_API_KEY = stringPreferencesKey("grok_api_key")
         val GROK_MODEL = stringPreferencesKey("grok_model")
+        val DRIVE_FOLDER_URI = stringPreferencesKey("drive_folder_uri")
     }
 
     val serverUrl: Flow<String?> = context.dataStore.data.map { it[Keys.SERVER_URL] }
@@ -62,6 +63,7 @@ class SettingsRepository @Inject constructor(
     val openrouterModel: Flow<String?> = context.dataStore.data.map { it[Keys.OPENROUTER_MODEL] }
     val grokApiKey: Flow<String?> = context.dataStore.data.map { it[Keys.GROK_API_KEY] }
     val grokModel: Flow<String?> = context.dataStore.data.map { it[Keys.GROK_MODEL] }
+    val driveFolderUri: Flow<String?> = context.dataStore.data.map { it[Keys.DRIVE_FOLDER_URI] }
 
     /** alias (lowercase, user-facing name) -> Android package name. Purely local, no server round-trip. */
     val appAliases: Flow<Map<String, String>> = context.dataStore.data.map { prefs ->
@@ -150,5 +152,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setGrokModel(model: String) {
         context.dataStore.edit { it[Keys.GROK_MODEL] = model }
+    }
+
+    suspend fun setDriveFolderUri(uri: String) {
+        context.dataStore.edit { it[Keys.DRIVE_FOLDER_URI] = uri }
     }
 }
