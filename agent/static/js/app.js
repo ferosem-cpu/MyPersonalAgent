@@ -116,6 +116,7 @@ function initializeAgent() {
                 initialized = true;
                 document.getElementById('input').disabled = false;
                 document.getElementById('sendBtn').disabled = false;
+                if (getSpeechRecognitionCtor()) document.getElementById('micBtn').disabled = false;
                 document.getElementById('status').textContent = '✓ Ready: ' + data.provider + ' / ' + data.model;
                 document.getElementById('input').focus();
             } else {
@@ -153,6 +154,54 @@ function sendMessage() {
             typingEl.remove();
             addMessage('assistant', '❌ Error: ' + err.message);
         });
+}
+
+// ---- Voice input (mic) ----
+
+let recognition = null;
+let listening = false;
+
+function getSpeechRecognitionCtor() {
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function toggleVoiceInput() {
+    if (listening) {
+        if (recognition) recognition.stop();
+        return;
+    }
+
+    const SpeechRecognitionCtor = getSpeechRecognitionCtor();
+    if (!SpeechRecognitionCtor) {
+        alert('Voice input is not supported in this browser. Try Chrome or Edge.');
+        return;
+    }
+
+    const micBtn = document.getElementById('micBtn');
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        listening = true;
+        micBtn.classList.add('listening');
+    };
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        const input = document.getElementById('input');
+        input.value = transcript;
+        input.focus();
+    };
+    recognition.onerror = () => {
+        listening = false;
+        micBtn.classList.remove('listening');
+    };
+    recognition.onend = () => {
+        listening = false;
+        micBtn.classList.remove('listening');
+    };
+    recognition.start();
 }
 
 function onKeyPress(e) {
