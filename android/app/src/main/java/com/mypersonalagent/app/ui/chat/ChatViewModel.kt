@@ -7,7 +7,6 @@ import com.mypersonalagent.app.data.local.AssistantEntity
 import com.mypersonalagent.app.data.local.ChatMessageEntity
 import com.mypersonalagent.app.data.repo.AssistantRepository
 import com.mypersonalagent.app.data.repo.ChatRepository
-import com.mypersonalagent.app.data.repo.ChatTurn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -77,7 +76,9 @@ class ChatViewModel @Inject constructor(
     fun clearError() { _error.value = null }
 
     private suspend fun runSolo(bot: AssistantEntity, userText: String) {
-        val reply = chat.send(userText, buildPersona(bot), visibleTurns(threadId))
+        chat.clearHistory()
+        val framed = "[You are ${bot.name}, ${bot.title}. ${bot.instructions}]\n\n$userText"
+        val reply = chat.send(framed)
         assistants.addMessage(threadId, "assistant", reply.text, speakerId = bot.id, speakerName = bot.name)
     }
 
@@ -89,28 +90,15 @@ class ChatViewModel @Inject constructor(
             assistants.addMessage(threadId, "assistant", "No teammates in this room yet.", speakerName = room.name)
             return
         }
-        val shared = visibleTurns(threadId)
         for (member in members) {
-            val persona = buildPersona(member) +
-                "\nYou are in a group room with: ${members.joinToString { it.name }}. " +
-                "Reply only if you have a useful next step in your lane. If not, reply with exactly PASS."
-            val reply = chat.send(userText, persona, shared)
+            chat.clearHistory()
+            val framed = "[You are ${member.name}, ${member.title}. ${member.instructions}. " +
+                "Group room with ${members.joinToString { it.name }}. " +
+                "If you have nothing useful, reply PASS.]\n\n$userText"
+            val reply = chat.send(framed)
             val text = reply.text.trim()
             if (text.isBlank() || text.equals("PASS", true) || text.startsWith("PASS")) continue
             assistants.addMessage(threadId, "assistant", text, speakerId = member.id, speakerName = member.name)
         }
-    }
-
-    private suspend fun visibleTurns(id: String): List<ChatTurn> {
-        return assistants.listThread(id)
-            .filter { (it.role == "user" || it.role == "assistant") && it.kind == "text" }
-            .takeLast(16)
-            .map { ChatTurn(it.role, it.content) }
-    }
-
-    private fun buildPersona(bot: AssistantEntity): String {
-        return "You are ${bot.name}, ${bot.title}.\n${bot.instructions}\n" +
-            "You share one workspace on this phone: todos, notes, contacts, files. " +
-            "Use tools when work should persist. Be concise. Talk like a teammate."
     }
 }
