@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+const val DEFAULT_LLM_BASE_URL = "https://freellmapi-ferose.duckdns.org/v1"
+const val DEFAULT_LLM_MODEL = "gpt-4o-mini"
+
 sealed interface DriveBackupStatus {
     object Idle : DriveBackupStatus
     object Working : DriveBackupStatus
@@ -30,22 +33,9 @@ sealed interface DriveBackupStatus {
 data class SettingsUiState(
     val telegramBotToken: String = "",
     val telegramChatId: String = "",
-    val llmProvider: String = "auto",
-    val anthropicApiKey: String = "",
-    val anthropicModel: String = "",
-    val nvidiaApiKey: String = "",
-    val nvidiaModel: String = "",
-    val openaiApiKey: String = "",
-    val openaiModel: String = "",
-    val googleApiKey: String = "",
-    val googleModel: String = "",
-    val openrouterApiKey: String = "",
-    val openrouterModel: String = "",
-    val grokApiKey: String = "",
-    val grokModel: String = "",
     val customApiKey: String = "",
-    val customBaseUrl: String = "https://freellmapi-ferose.duckdns.org/v1",
-    val customModel: String = "",
+    val customBaseUrl: String = DEFAULT_LLM_BASE_URL,
+    val customModel: String = DEFAULT_LLM_MODEL,
     val ready: Boolean = false,
 )
 
@@ -58,51 +48,18 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val state: StateFlow<SettingsUiState> = combine(
-        combine(
-            settings.telegramBotToken,
-            settings.telegramChatId,
-            settings.llmProvider,
-            settings.anthropicApiKey,
-            settings.anthropicModel,
-            settings.nvidiaApiKey,
-            settings.nvidiaModel,
-        ) { arr -> arr.copyOf() },
-        combine(
-            settings.openaiApiKey,
-            settings.openaiModel,
-            settings.googleApiKey,
-            settings.googleModel,
-            settings.openrouterApiKey,
-            settings.openrouterModel,
-            settings.grokApiKey,
-        ) { arr -> arr.copyOf() },
-        combine(
-            settings.grokModel,
-            settings.customApiKey,
-            settings.customBaseUrl,
-            settings.customModel,
-        ) { a, b, c, d -> arrayOf(a, b, c, d) },
-    ) { group1, group2, group3 ->
-        val grokModel = group3[0]
+        settings.telegramBotToken,
+        settings.telegramChatId,
+        settings.customApiKey,
+        settings.customBaseUrl,
+        settings.customModel,
+    ) { botToken, chatId, apiKey, baseUrl, model ->
         SettingsUiState(
-            telegramBotToken = group1[0] ?: "",
-            telegramChatId = group1[1] ?: "",
-            llmProvider = group1[2] ?: "auto",
-            anthropicApiKey = group1[3] ?: "",
-            anthropicModel = group1[4] ?: "",
-            nvidiaApiKey = group1[5] ?: "",
-            nvidiaModel = group1[6] ?: "",
-            openaiApiKey = group2[0] ?: "",
-            openaiModel = group2[1] ?: "",
-            googleApiKey = group2[2] ?: "",
-            googleModel = group2[3] ?: "",
-            openrouterApiKey = group2[4] ?: "",
-            openrouterModel = group2[5] ?: "",
-            grokApiKey = group2[6] ?: "",
-            grokModel = grokModel ?: "",
-            customApiKey = group3[1] ?: "",
-            customBaseUrl = group3[2] ?: "https://freellmapi-ferose.duckdns.org/v1",
-            customModel = group3[3] ?: "",
+            telegramBotToken = botToken.orEmpty(),
+            telegramChatId = chatId.orEmpty(),
+            customApiKey = apiKey.orEmpty(),
+            customBaseUrl = baseUrl?.trim()?.ifBlank { null } ?: DEFAULT_LLM_BASE_URL,
+            customModel = model?.trim()?.ifBlank { null } ?: DEFAULT_LLM_MODEL,
             ready = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
@@ -132,83 +89,30 @@ class SettingsViewModel @Inject constructor(
     }
 
     /**
-     * Persist LLM settings. Blank key fields keep the previously saved key
-     * (so a UI reset cannot wipe credentials). Use [clearProviderKey] to delete.
+     * Persist the single OpenAI-compatible gateway. Blank key keeps the
+     * previously saved key so a UI reset cannot wipe credentials.
      */
-    fun saveAllKeys(
-        provider: String,
-        nvidiaApiKey: String,
-        nvidiaModel: String,
-        anthropicApiKey: String,
-        anthropicModel: String,
-        openaiApiKey: String,
-        openaiModel: String,
-        googleApiKey: String,
-        googleModel: String,
-        openrouterApiKey: String,
-        openrouterModel: String,
-        grokApiKey: String,
-        grokModel: String,
-        customApiKey: String,
-        customBaseUrl: String,
-        customModel: String,
-    ) {
+    fun saveGateway(apiKey: String, baseUrl: String, model: String) {
         viewModelScope.launch {
-            settings.setLlmProvider(provider.trim().lowercase().ifBlank { "auto" })
-            if (nvidiaApiKey.isNotBlank()) settings.setNvidiaApiKey(nvidiaApiKey.trim())
-            if (nvidiaModel.isNotBlank()) settings.setNvidiaModel(nvidiaModel.trim())
-            if (anthropicApiKey.isNotBlank()) settings.setAnthropicApiKey(anthropicApiKey.trim())
-            if (anthropicModel.isNotBlank()) settings.setAnthropicModel(anthropicModel.trim())
-            if (openaiApiKey.isNotBlank()) settings.setOpenaiApiKey(openaiApiKey.trim())
-            if (openaiModel.isNotBlank()) settings.setOpenaiModel(openaiModel.trim())
-            if (googleApiKey.isNotBlank()) settings.setGoogleApiKey(googleApiKey.trim())
-            if (googleModel.isNotBlank()) settings.setGoogleModel(googleModel.trim())
-            if (openrouterApiKey.isNotBlank()) settings.setOpenrouterApiKey(openrouterApiKey.trim())
-            if (openrouterModel.isNotBlank()) settings.setOpenrouterModel(openrouterModel.trim())
-            if (grokApiKey.isNotBlank()) settings.setGrokApiKey(grokApiKey.trim())
-            if (grokModel.isNotBlank()) settings.setGrokModel(grokModel.trim())
-            if (customApiKey.isNotBlank()) settings.setCustomApiKey(customApiKey.trim())
-            if (customBaseUrl.isNotBlank()) settings.setCustomBaseUrl(customBaseUrl.trim().trimEnd('/'))
-            if (customModel.isNotBlank()) settings.setCustomModel(customModel.trim())
+            settings.setLlmProvider("custom")
+            if (apiKey.isNotBlank()) settings.setCustomApiKey(apiKey.trim())
+            val url = baseUrl.trim().trimEnd('/').ifBlank { DEFAULT_LLM_BASE_URL }
+            settings.setCustomBaseUrl(url)
+            settings.setCustomModel(model.trim().ifBlank { DEFAULT_LLM_MODEL })
 
-            val saved = listOfNotNull(
-                nvidiaApiKey.takeIf { it.isNotBlank() }?.let { "NVIDIA" },
-                anthropicApiKey.takeIf { it.isNotBlank() }?.let { "Anthropic" },
-                openaiApiKey.takeIf { it.isNotBlank() }?.let { "OpenAI" },
-                googleApiKey.takeIf { it.isNotBlank() }?.let { "Google" },
-                openrouterApiKey.takeIf { it.isNotBlank() }?.let { "OpenRouter" },
-                grokApiKey.takeIf { it.isNotBlank() }?.let { "Grok" },
-                customApiKey.takeIf { it.isNotBlank() }?.let { "FreeLLM" },
-            )
-            val already = buildList {
-                if (settings.nvidiaApiKey.first().orEmpty().isNotBlank()) add("NVIDIA")
-                if (settings.anthropicApiKey.first().orEmpty().isNotBlank()) add("Anthropic")
-                if (settings.openaiApiKey.first().orEmpty().isNotBlank()) add("OpenAI")
-                if (settings.googleApiKey.first().orEmpty().isNotBlank()) add("Google")
-                if (settings.openrouterApiKey.first().orEmpty().isNotBlank()) add("OpenRouter")
-                if (settings.grokApiKey.first().orEmpty().isNotBlank()) add("Grok")
-                if (settings.customApiKey.first().orEmpty().isNotBlank()) add("FreeLLM")
-            }.distinct()
-            _saveMessage.value = if (already.isEmpty() && saved.isEmpty()) {
-                "Nothing saved — paste at least one API key."
+            val storedKey = settings.customApiKey.first().orEmpty()
+            _saveMessage.value = if (storedKey.isBlank()) {
+                "Nothing saved — paste your FreeLLM / Reeller API key."
             } else {
-                "Keys saved for: ${already.joinToString()}. Chat can use them immediately."
+                "Gateway saved. Chat will call $url — no rebuild needed when you change models or backends on the gateway."
             }
         }
     }
 
-    fun clearProviderKey(provider: String) {
+    fun clearGatewayKey() {
         viewModelScope.launch {
-            when (provider) {
-                "nvidia" -> settings.setNvidiaApiKey("")
-                "anthropic" -> settings.setAnthropicApiKey("")
-                "openai" -> settings.setOpenaiApiKey("")
-                "google" -> settings.setGoogleApiKey("")
-                "openrouter" -> settings.setOpenrouterApiKey("")
-                "grok" -> settings.setGrokApiKey("")
-                "freellm" -> settings.setCustomApiKey("")
-            }
-            _saveMessage.value = "Removed $provider key"
+            settings.setCustomApiKey("")
+            _saveMessage.value = "Removed API key"
         }
     }
 

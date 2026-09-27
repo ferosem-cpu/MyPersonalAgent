@@ -41,23 +41,14 @@
     <section id="settings" class="screen">
       <div class="setup">
         <h1>Settings</h1>
-        <p>One API key. Every assistant uses it.</p>
-        <label class="label">Provider</label>
-        <select id="provider" class="select">
-          <option value="xai">xAI / Grok</option>
-          <option value="openai">OpenAI</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="nvidia">NVIDIA NIM</option>
-          <option value="freellm">FreeLLM / Reeller</option>
-          <option value="custom">Custom OpenAI-compatible</option>
-        </select>
+        <p>One OpenAI-compatible gateway. Every assistant uses it. Add Grok / Claude / NVIDIA inside FreeLLM — not here.</p>
+        <label class="label">Endpoint</label>
+        <input id="baseUrl" class="field" placeholder="https://freellmapi-ferose.duckdns.org/v1" />
         <label class="label">API key</label>
-        <input id="apiKey" class="field" type="password" autocomplete="off" placeholder="Paste one key" />
-        <label class="label">Base URL</label>
-        <input id="baseUrl" class="field" placeholder="https://api.x.ai/v1" />
+        <input id="apiKey" class="field" type="password" autocomplete="off" placeholder="FreeLLM / Reeller key" />
         <label class="label">Model</label>
-        <input id="model" class="field" placeholder="grok-4" />
-        <p class="hint">The key never leaves this device except to call the provider you chose.</p>
+        <input id="model" class="field" placeholder="gpt-4o-mini" />
+        <p class="hint">The key stays on this device except when calling the endpoint you saved. Changing the endpoint does not need a rebuild.</p>
         <div class="actions">
           <button class="ghost" id="backSettings">Back</button>
           <button class="primary" id="saveSettings">Save</button>
