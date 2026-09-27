@@ -43,6 +43,9 @@ data class SettingsUiState(
     val openrouterModel: String = "",
     val grokApiKey: String = "",
     val grokModel: String = "",
+    val customApiKey: String = "",
+    val customBaseUrl: String = "https://freellmapi-ferose.duckdns.org/v1",
+    val customModel: String = "",
     val ready: Boolean = false,
 )
 
@@ -73,8 +76,14 @@ class SettingsViewModel @Inject constructor(
             settings.openrouterModel,
             settings.grokApiKey,
         ) { arr -> arr.copyOf() },
-        settings.grokModel,
-    ) { group1, group2, grokModel ->
+        combine(
+            settings.grokModel,
+            settings.customApiKey,
+            settings.customBaseUrl,
+            settings.customModel,
+        ) { a, b, c, d -> arrayOf(a, b, c, d) },
+    ) { group1, group2, group3 ->
+        val grokModel = group3[0]
         SettingsUiState(
             telegramBotToken = group1[0] ?: "",
             telegramChatId = group1[1] ?: "",
@@ -91,6 +100,9 @@ class SettingsViewModel @Inject constructor(
             openrouterModel = group2[5] ?: "",
             grokApiKey = group2[6] ?: "",
             grokModel = grokModel ?: "",
+            customApiKey = group3[1] ?: "",
+            customBaseUrl = group3[2] ?: "https://freellmapi-ferose.duckdns.org/v1",
+            customModel = group3[3] ?: "",
             ready = true,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
@@ -137,6 +149,9 @@ class SettingsViewModel @Inject constructor(
         openrouterModel: String,
         grokApiKey: String,
         grokModel: String,
+        customApiKey: String,
+        customBaseUrl: String,
+        customModel: String,
     ) {
         viewModelScope.launch {
             settings.setLlmProvider(provider.trim().lowercase().ifBlank { "auto" })
@@ -152,6 +167,9 @@ class SettingsViewModel @Inject constructor(
             if (openrouterModel.isNotBlank()) settings.setOpenrouterModel(openrouterModel.trim())
             if (grokApiKey.isNotBlank()) settings.setGrokApiKey(grokApiKey.trim())
             if (grokModel.isNotBlank()) settings.setGrokModel(grokModel.trim())
+            if (customApiKey.isNotBlank()) settings.setCustomApiKey(customApiKey.trim())
+            if (customBaseUrl.isNotBlank()) settings.setCustomBaseUrl(customBaseUrl.trim().trimEnd('/'))
+            if (customModel.isNotBlank()) settings.setCustomModel(customModel.trim())
 
             val saved = listOfNotNull(
                 nvidiaApiKey.takeIf { it.isNotBlank() }?.let { "NVIDIA" },
@@ -160,6 +178,7 @@ class SettingsViewModel @Inject constructor(
                 googleApiKey.takeIf { it.isNotBlank() }?.let { "Google" },
                 openrouterApiKey.takeIf { it.isNotBlank() }?.let { "OpenRouter" },
                 grokApiKey.takeIf { it.isNotBlank() }?.let { "Grok" },
+                customApiKey.takeIf { it.isNotBlank() }?.let { "FreeLLM" },
             )
             val already = buildList {
                 if (settings.nvidiaApiKey.first().orEmpty().isNotBlank()) add("NVIDIA")
@@ -168,6 +187,7 @@ class SettingsViewModel @Inject constructor(
                 if (settings.googleApiKey.first().orEmpty().isNotBlank()) add("Google")
                 if (settings.openrouterApiKey.first().orEmpty().isNotBlank()) add("OpenRouter")
                 if (settings.grokApiKey.first().orEmpty().isNotBlank()) add("Grok")
+                if (settings.customApiKey.first().orEmpty().isNotBlank()) add("FreeLLM")
             }.distinct()
             _saveMessage.value = if (already.isEmpty() && saved.isEmpty()) {
                 "Nothing saved — paste at least one API key."
@@ -186,6 +206,7 @@ class SettingsViewModel @Inject constructor(
                 "google" -> settings.setGoogleApiKey("")
                 "openrouter" -> settings.setOpenrouterApiKey("")
                 "grok" -> settings.setGrokApiKey("")
+                "freellm" -> settings.setCustomApiKey("")
             }
             _saveMessage.value = "Removed $provider key"
         }
