@@ -11,13 +11,9 @@ const PRESETS = [
   { name: "Inbox Aide", job: "Drafts replies, never sends", color: "#FF7A59", shape: "round",
     instructions: "Draft messages in the user's voice. Never claim you sent anything. Queue work for approval." },
 ];
-const PROVIDERS = {
-  xai: { label: "xAI / Grok", baseUrl: "https://api.x.ai/v1", model: "grok-4" },
-  openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
-  openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
-  nvidia: { label: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.1-70b-instruct" },
-  freellm: { label: "FreeLLM / Reeller", baseUrl: "https://freellmapi-ferose.duckdns.org/v1", model: "gpt-4o-mini" },
-  custom: { label: "Custom OpenAI-compatible", baseUrl: "", model: "" },
+const DEFAULT_GATEWAY = {
+  baseUrl: "https://freellmapi-ferose.duckdns.org/v1",
+  model: "gpt-4o-mini",
 };
 const TOOLS = [
   { type: "function", function: { name: "add_todo", description: "Create a todo", parameters: { type: "object", properties: { title: { type: "string" }, due: { type: "string" } }, required: ["title"] } } },
@@ -34,7 +30,7 @@ function now() { return Date.now(); }
 function load() {
   const raw = localStorage.getItem(KEY);
   if (raw) return JSON.parse(raw);
-  return { settings: { apiKey: "", provider: "xai", baseUrl: PROVIDERS.xai.baseUrl, model: PROVIDERS.xai.model }, assistants: [], messages: {}, todos: [], notes: [], contacts: [] };
+  return { settings: { apiKey: "", baseUrl: DEFAULT_GATEWAY.baseUrl, model: DEFAULT_GATEWAY.model }, assistants: [], messages: {}, todos: [], notes: [], contacts: [] };
 }
 let state = load();
 function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -68,7 +64,7 @@ function lastMsg(id) {
   const m = [...list].reverse().find(x => x.role !== "tool");
   return m ? String(m.content || "").replace(/\s+/g, " ") : "No messages yet";
 }
-function esc(s) { return String(s || "").replace(/[&<>"]/g, c => ({ "&": "&", "<": "<", ">": ">", '"': """ }[c])); }
+function esc(s) { return String(s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function renderHome() {
   const q = ($("search").value || "").toLowerCase();
   const bots = state.assistants.filter(a => !a.hidden);
@@ -120,14 +116,22 @@ function createBot() {
   save(); $("sheet").classList.remove("on"); openChat(a.id);
 }
 function openSettings() {
-  const s = state.settings; $("provider").value = s.provider || "xai"; $("apiKey").value = s.apiKey || ""; $("baseUrl").value = s.baseUrl || ""; $("model").value = s.model || ""; show("settings");
+  const s = state.settings;
+  $("apiKey").value = s.apiKey || "";
+  $("baseUrl").value = s.baseUrl || DEFAULT_GATEWAY.baseUrl;
+  $("model").value = s.model || DEFAULT_GATEWAY.model;
+  show("settings");
 }
-function applyProvider() {
-  const p = PROVIDERS[$("provider").value]; if (!p) return;
-  if ($("provider").value !== "custom") { $("baseUrl").value = p.baseUrl; if (!$("model").value) $("model").value = p.model; }
+function completionsUrl(base) {
+  const trimmed = String(base || "").trim().replace(/\/$/, "");
+  return trimmed.endsWith("/chat/completions") ? trimmed : trimmed + "/chat/completions";
 }
 function saveSettings() {
-  state.settings = { provider: $("provider").value, apiKey: $("apiKey").value.trim(), baseUrl: $("baseUrl").value.trim().replace(/\/$/, ""), model: $("model").value.trim() };
+  state.settings = {
+    apiKey: $("apiKey").value.trim(),
+    baseUrl: ($("baseUrl").value.trim() || DEFAULT_GATEWAY.baseUrl).replace(/\/$/, ""),
+    model: $("model").value.trim() || DEFAULT_GATEWAY.model,
+  };
   save(); show("home"); renderHome();
 }
 function pushMsg(id, msg) {
@@ -182,7 +186,7 @@ function runTool(name, args) {
 }
 async function chatApi(messages) {
   const s = state.settings;
-  const res = await fetch(s.baseUrl + "/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + s.apiKey }, body: JSON.stringify({ model: s.model, messages, tools: TOOLS, temperature: 0.4 }) });
+  const res = await fetch(completionsUrl(s.baseUrl), { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + s.apiKey }, body: JSON.stringify({ model: s.model || DEFAULT_GATEWAY.model, messages, tools: TOOLS, temperature: 0.4 }) });
   const text = await res.text();
   if (!res.ok) throw new Error(res.status + " " + text.slice(0, 280));
   return JSON.parse(text);
@@ -198,7 +202,7 @@ window.addEventListener("DOMContentLoaded", () => {
   $("backBtn").onclick = () => { show("home"); renderHome(); };
   $("saveBot").onclick = createBot; $("cancelBot").onclick = () => $("sheet").classList.remove("on");
   $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") e.target.classList.remove("on"); });
-  $("saveSettings").onclick = saveSettings; $("provider").onchange = applyProvider;
+  $("saveSettings").onclick = saveSettings;
   $("send").onclick = send;
   $("composer").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
   $("moreBtn").onclick = deleteCurrent; $("backSettings").onclick = () => { show("home"); renderHome(); };
