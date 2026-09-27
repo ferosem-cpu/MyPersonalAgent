@@ -5,10 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,7 +19,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,24 +42,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 
-private data class ProviderSpec(
-    val id: String,
-    val label: String,
-    val keyHint: String,
-    val modelHint: String,
-)
-
-private val LLM_PROVIDERS = listOf(
-    ProviderSpec("auto", "Auto (fallback)", "", ""),
-    ProviderSpec("nvidia", "NVIDIA", "nvapi-…", "nvidia/llama-3.3-nemotron-super-49b-v1.5"),
-    ProviderSpec("anthropic", "Anthropic", "sk-ant-…", "claude-sonnet-5"),
-    ProviderSpec("openai", "OpenAI", "sk-…", "gpt-4o"),
-    ProviderSpec("google", "Google", "AIza…", "gemini-2.0-flash"),
-    ProviderSpec("openrouter", "OpenRouter", "sk-or-…", "anthropic/claude-sonnet-5"),
-    ProviderSpec("grok", "Grok", "xai-…", "grok-3"),
-)
-
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
@@ -94,19 +72,9 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     var hydrated by remember { mutableStateOf(false) }
     var telegramBotToken by remember { mutableStateOf("") }
     var telegramChatId by remember { mutableStateOf("") }
-    var llmProvider by remember { mutableStateOf("auto") }
-    var nvidiaApiKey by remember { mutableStateOf("") }
-    var nvidiaModel by remember { mutableStateOf("") }
-    var anthropicApiKey by remember { mutableStateOf("") }
-    var anthropicModel by remember { mutableStateOf("") }
-    var openaiApiKey by remember { mutableStateOf("") }
-    var openaiModel by remember { mutableStateOf("") }
-    var googleApiKey by remember { mutableStateOf("") }
-    var googleModel by remember { mutableStateOf("") }
-    var openrouterApiKey by remember { mutableStateOf("") }
-    var openrouterModel by remember { mutableStateOf("") }
-    var grokApiKey by remember { mutableStateOf("") }
-    var grokModel by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var baseUrl by remember { mutableStateOf(DEFAULT_LLM_BASE_URL) }
+    var model by remember { mutableStateOf(DEFAULT_LLM_MODEL) }
     var openAppQuery by remember { mutableStateOf("") }
     var newAliasName by remember { mutableStateOf("") }
     var newAliasPackage by remember { mutableStateOf("") }
@@ -115,19 +83,9 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         if (state.ready && !hydrated) {
             telegramBotToken = state.telegramBotToken
             telegramChatId = state.telegramChatId
-            llmProvider = state.llmProvider.ifBlank { "auto" }
-            nvidiaApiKey = state.nvidiaApiKey
-            nvidiaModel = state.nvidiaModel
-            anthropicApiKey = state.anthropicApiKey
-            anthropicModel = state.anthropicModel
-            openaiApiKey = state.openaiApiKey
-            openaiModel = state.openaiModel
-            googleApiKey = state.googleApiKey
-            googleModel = state.googleModel
-            openrouterApiKey = state.openrouterApiKey
-            openrouterModel = state.openrouterModel
-            grokApiKey = state.grokApiKey
-            grokModel = state.grokModel
+            apiKey = ""
+            baseUrl = state.customBaseUrl.ifBlank { DEFAULT_LLM_BASE_URL }
+            model = state.customModel.ifBlank { DEFAULT_LLM_MODEL }
             hydrated = true
         }
     }
@@ -141,7 +99,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "This app runs entirely on your phone. Paste API keys below and tap Save all keys once.",
+            "One gateway. Paste the endpoint and key once. Change Grok / Claude / NVIDIA on your FreeLLM router — the APK never needs a rebuild.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -161,62 +119,47 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             }
         }
 
-        SettingsCard(title = "AI chat keys", subtitle = "One save writes every key you filled in. Leaving a field blank keeps the key already stored.") {
-            Text("Preferred provider", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LLM_PROVIDERS.forEach { spec ->
-                    FilterChip(
-                        selected = llmProvider == spec.id,
-                        onClick = { llmProvider = spec.id },
-                        label = { Text(spec.label) },
-                    )
+        SettingsCard(
+            title = "LLM gateway",
+            subtitle = "OpenAI-compatible /v1 endpoint. Route every backend through FreeLLM and only change this URL or key here.",
+        ) {
+            OutlinedTextField(
+                value = baseUrl,
+                onValueChange = { baseUrl = it },
+                label = { Text("Endpoint") },
+                placeholder = { Text(DEFAULT_LLM_BASE_URL) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            KeyField(
+                label = "API key",
+                value = apiKey,
+                onValueChange = { apiKey = it },
+                hint = "Reeller / FreeLLM key",
+                saved = state.customApiKey.isNotBlank(),
+            )
+            OutlinedTextField(
+                value = model,
+                onValueChange = { model = it },
+                label = { Text("Model id") },
+                placeholder = { Text(DEFAULT_LLM_MODEL) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+            Text(
+                "Use a model id your gateway already exposes. Add Grok, Claude, NVIDIA, etc. inside FreeLLM — not in this app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.customApiKey.isNotBlank()) {
+                TextButton(onClick = { viewModel.clearGatewayKey(); apiKey = "" }) {
+                    Text("Remove saved key")
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            KeyField("NVIDIA API key", nvidiaApiKey, { nvidiaApiKey = it }, LLM_PROVIDERS[1].keyHint, saved = state.nvidiaApiKey.isNotBlank())
-            OutlinedTextField(value = nvidiaModel, onValueChange = { nvidiaModel = it }, label = { Text("NVIDIA model") }, placeholder = { Text(LLM_PROVIDERS[1].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.nvidiaApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("nvidia"); nvidiaApiKey = "" }) { Text("Remove NVIDIA key") }
-
-            KeyField("Anthropic API key", anthropicApiKey, { anthropicApiKey = it }, LLM_PROVIDERS[2].keyHint, saved = state.anthropicApiKey.isNotBlank())
-            OutlinedTextField(value = anthropicModel, onValueChange = { anthropicModel = it }, label = { Text("Anthropic model") }, placeholder = { Text(LLM_PROVIDERS[2].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.anthropicApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("anthropic"); anthropicApiKey = "" }) { Text("Remove Anthropic key") }
-
-            KeyField("OpenAI API key", openaiApiKey, { openaiApiKey = it }, LLM_PROVIDERS[3].keyHint, saved = state.openaiApiKey.isNotBlank())
-            OutlinedTextField(value = openaiModel, onValueChange = { openaiModel = it }, label = { Text("OpenAI model") }, placeholder = { Text(LLM_PROVIDERS[3].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.openaiApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("openai"); openaiApiKey = "" }) { Text("Remove OpenAI key") }
-
-            KeyField("Google API key", googleApiKey, { googleApiKey = it }, LLM_PROVIDERS[4].keyHint, saved = state.googleApiKey.isNotBlank())
-            OutlinedTextField(value = googleModel, onValueChange = { googleModel = it }, label = { Text("Google model") }, placeholder = { Text(LLM_PROVIDERS[4].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.googleApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("google"); googleApiKey = "" }) { Text("Remove Google key") }
-
-            KeyField("OpenRouter API key", openrouterApiKey, { openrouterApiKey = it }, LLM_PROVIDERS[5].keyHint, saved = state.openrouterApiKey.isNotBlank())
-            OutlinedTextField(value = openrouterModel, onValueChange = { openrouterModel = it }, label = { Text("OpenRouter model") }, placeholder = { Text(LLM_PROVIDERS[5].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.openrouterApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("openrouter"); openrouterApiKey = "" }) { Text("Remove OpenRouter key") }
-
-            KeyField("Grok API key", grokApiKey, { grokApiKey = it }, LLM_PROVIDERS[6].keyHint, saved = state.grokApiKey.isNotBlank())
-            OutlinedTextField(value = grokModel, onValueChange = { grokModel = it }, label = { Text("Grok model") }, placeholder = { Text(LLM_PROVIDERS[6].modelHint) }, modifier = Modifier.fillMaxWidth())
-            if (state.grokApiKey.isNotBlank()) TextButton(onClick = { viewModel.clearProviderKey("grok"); grokApiKey = "" }) { Text("Remove Grok key") }
-
             Button(
-                onClick = {
-                    viewModel.saveAllKeys(
-                        provider = llmProvider,
-                        nvidiaApiKey = nvidiaApiKey,
-                        nvidiaModel = nvidiaModel,
-                        anthropicApiKey = anthropicApiKey,
-                        anthropicModel = anthropicModel,
-                        openaiApiKey = openaiApiKey,
-                        openaiModel = openaiModel,
-                        googleApiKey = googleApiKey,
-                        googleModel = googleModel,
-                        openrouterApiKey = openrouterApiKey,
-                        openrouterModel = openrouterModel,
-                        grokApiKey = grokApiKey,
-                        grokModel = grokModel,
-                    )
-                },
+                onClick = { viewModel.saveGateway(apiKey = apiKey, baseUrl = baseUrl, model = model) },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
-            ) { Text("Save all keys") }
+            ) { Text("Save gateway") }
         }
 
         SettingsCard(title = "Telegram reminders", subtitle = "Optional. Create a bot with @BotFather, message it, then paste the token and chat id.") {
