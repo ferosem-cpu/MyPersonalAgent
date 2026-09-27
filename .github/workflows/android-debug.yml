@@ -32,19 +32,15 @@ jobs:
       - name: Publish downloadable release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.3.0-android
-          name: Android standalone v0.3.0
+          tag_name: v0.4.0-android
+          name: Crew v0.4.0 — Grokbot-style assistants
           body: |
-            Debug APK for the standalone on-device agent (v0.3.0).
-
-            New: share/drop files into the app → Pictures/Documents/Code/Others in your chosen Google Drive folder.
-            Also: add contacts, export vCard, snooze todos, due dates, boot reminder restore.
-
-            Install: download `app-debug.apk` or the zip, allow unknown sources if asked.
+            Debug APK for Crew (v0.4.0): roster of assistants, War Room group chat, one API key.
 
             After install:
-            1. Folder icon (top bar) → Choose Drive folder → menu → Drive → MyPersonalAgent
-            2. Gear → paste API key → Save all keys
-            3. Share any file to MyPersonalAgent from another app
+            1. Open Crew. You get Chief of Staff, Researcher, Writer, Ops, Memory, and War Room.
+            2. Gear → paste one API key (xAI / OpenAI / OpenRouter / etc.) → Save all keys
+            3. Tap + to add more assistants
+            4. Open War Room to have several teammates answer the same job
           files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
