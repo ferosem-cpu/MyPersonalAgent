@@ -9,6 +9,9 @@ import com.mypersonalagent.app.data.local.MIGRATION_1_2
 import com.mypersonalagent.app.data.local.MIGRATION_2_3
 import com.mypersonalagent.app.data.local.FileDao
 import com.mypersonalagent.app.data.local.MIGRATION_3_4
+import com.mypersonalagent.app.data.local.MIGRATION_4_5
+import com.mypersonalagent.app.data.local.AssistantDao
+import com.mypersonalagent.app.data.local.ChatMessageDao
 import com.mypersonalagent.app.data.local.NoteDao
 import com.mypersonalagent.app.data.local.TodoDao
 import com.mypersonalagent.app.data.remote.ApiService
@@ -35,8 +38,6 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 
-/** drive.file - least-privilege scope: the app only ever sees files it creates itself,
- * never the rest of the user's Drive. */
 const val DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 @Module
@@ -59,8 +60,6 @@ object AppModule {
             .addInterceptor(baseUrlInterceptor)
             .addInterceptor(authInterceptor)
             .addInterceptor(logging)
-            // Chat can run several tool-call rounds against a slow LLM provider - the default
-            // 10s read timeout would kill a normal reply before it finishes.
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -71,7 +70,6 @@ object AppModule {
     fun provideRetrofit(client: OkHttpClient): Retrofit {
         val json = Json { ignoreUnknownKeys = true }
         return Retrofit.Builder()
-            // Placeholder host - BaseUrlInterceptor rewrites it per-request from Settings.
             .baseUrl("http://localhost/")
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
@@ -81,10 +79,6 @@ object AppModule {
     @Provides
     @Singleton
     fun provideApiService(retrofit: Retrofit): ApiService = retrofit.create(ApiService::class.java)
-
-    // --- Telegram: a fully separate OkHttp/Retrofit stack, deliberately not sharing the
-    // agent-server OkHttpClient above (which rewrites host via BaseUrlInterceptor and
-    // attaches AuthInterceptor - neither is relevant or safe to apply to Telegram calls). ---
 
     @Provides
     @Singleton
@@ -100,7 +94,7 @@ object AppModule {
     fun provideTelegramRetrofit(@Named("telegram") client: OkHttpClient): Retrofit {
         val json = Json { ignoreUnknownKeys = true }
         return Retrofit.Builder()
-            .baseUrl("https://api.telegram.org/") // unused per-call (absolute @Url), but required by Retrofit
+            .baseUrl("https://api.telegram.org/")
             .client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
@@ -112,12 +106,6 @@ object AppModule {
     fun provideTelegramService(@Named("telegram") retrofit: Retrofit): TelegramService =
         retrofit.create(TelegramService::class.java)
 
-    // --- Anthropic: same isolation reasoning as Telegram above - own OkHttpClient, no
-    // BaseUrlInterceptor/AuthInterceptor. Raw OkHttp (not Retrofit) since ChatRepository
-    // builds/parses the request/response as dynamic JSON (Anthropic's content blocks are
-    // polymorphic - text / tool_use / tool_result - which doesn't map cleanly to fixed
-    // @Serializable data classes without a lot of ceremony for little benefit here). ---
-
     @Provides
     @Singleton
     @Named("anthropic")
@@ -125,17 +113,10 @@ object AppModule {
         val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC }
         return OkHttpClient.Builder()
             .addInterceptor(logging)
-            // Tool-use loops can take several LLM round trips; default 10s read timeout is too short.
             .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .build()
     }
-
-    // --- Google Drive backup (Phase E): drive.file scope only, obtained via classic
-    // GoogleSignInClient + GoogleAuthUtil (not the newer Credential Manager - that API is
-    // for authentication/ID tokens, not OAuth *authorization* scopes like Drive access).
-    // Talks to the Drive v3 REST API directly over OkHttp, same lightweight pattern as
-    // Telegram/Anthropic above - no heavy google-api-client dependency needed. ---
 
     @Provides
     @Singleton
@@ -159,7 +140,7 @@ object AppModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "mypersonalagent.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides
@@ -176,4 +157,10 @@ object AppModule {
 
     @Provides
     fun provideFileDao(db: AppDatabase): FileDao = db.fileDao()
+
+    @Provides
+    fun provideAssistantDao(db: AppDatabase): AssistantDao = db.assistantDao()
+
+    @Provides
+    fun provideChatMessageDao(db: AppDatabase): ChatMessageDao = db.chatMessageDao()
 }
