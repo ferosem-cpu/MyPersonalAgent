@@ -10,19 +10,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Settings
@@ -39,24 +33,18 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.mypersonalagent.app.data.repo.FileInboxRepository
 import com.mypersonalagent.app.data.repo.IncomingShareBus
 import com.mypersonalagent.app.notifications.ReminderScheduler
@@ -66,6 +54,7 @@ import com.mypersonalagent.app.ui.contacts.ContactsScreen
 import com.mypersonalagent.app.ui.files.FilesScreen
 import com.mypersonalagent.app.ui.log.QuickLogScreen
 import com.mypersonalagent.app.ui.memory.MemoryScreen
+import com.mypersonalagent.app.ui.roster.RosterScreen
 import com.mypersonalagent.app.ui.settings.SettingsScreen
 import com.mypersonalagent.app.ui.theme.MyPersonalAgentTheme
 import com.mypersonalagent.app.ui.todos.TodoListScreen
@@ -81,7 +70,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var shareBus: IncomingShareBus
 
     private val requestNotificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* no-op */ }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onResume() {
         super.onResume()
@@ -104,9 +93,7 @@ class MainActivity : ComponentActivity() {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         handleIncoming(intent)
-        setContent {
-            MyPersonalAgentApp()
-        }
+        setContent { MyPersonalAgentApp() }
     }
 
     private fun handleIncoming(intent: Intent?) {
@@ -145,22 +132,12 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class BottomNavDestination(val route: String, val label: String, val icon: ImageVector) {
-    Chat("chat", "Chat", Icons.AutoMirrored.Filled.Chat),
+    Crew("crew", "Crew", Icons.Filled.Groups),
     Todos("todos", "Todos", Icons.Filled.FormatListBulleted),
     Log("log", "Log", Icons.Filled.History),
     Memory("memory", "Memory", Icons.Filled.Lightbulb),
     Contacts("contacts", "Contacts", Icons.Filled.Contacts),
 }
-
-private val routeTitles = mapOf(
-    "chat" to "Agent",
-    "todos" to "To-dos",
-    "log" to "Work log",
-    "memory" to "Memory",
-    "contacts" to "Contacts",
-    "files" to "Files",
-    "settings" to "Settings",
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -169,75 +146,48 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
         Surface(modifier = Modifier.fillMaxSize()) {
             val navController = rememberNavController()
             val backStackEntry by navController.currentBackStackEntryAsState()
-            val currentRoute = backStackEntry?.destination?.route ?: BottomNavDestination.Chat.route
-            val avatarUri by shellViewModel.avatarUri.collectAsState()
-            val showBottomBar = currentRoute != "settings" && currentRoute != "files"
+            val currentRoute = backStackEntry?.destination?.route ?: BottomNavDestination.Crew.route
+            val showBottomBar = currentRoute != "settings" && currentRoute != "files" && currentRoute?.startsWith("chat") != true
 
             LaunchedEffect(Unit) {
                 shellViewModel.shareEvents.collect {
-                    navController.navigate("files") {
-                        launchSingleTop = true
-                    }
+                    navController.navigate("files") { launchSingleTop = true }
                 }
             }
 
             Scaffold(
                 topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                routeTitles[currentRoute] ?: "MyPersonalAgent",
-                                style = MaterialTheme.typography.titleLarge,
-                            )
-                        },
-                        actions = {
-                            IconButton(
-                                onClick = {
-                                    if (currentRoute != "files") {
-                                        navController.navigate("files")
-                                    }
-                                },
-                            ) {
-                                Icon(Icons.Filled.Folder, contentDescription = "Files")
-                            }
-                            IconButton(
-                                onClick = {
-                                    if (currentRoute != "settings") {
-                                        navController.navigate("settings")
-                                    }
-                                },
-                            ) {
-                                Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                            }
-                            AvatarActionButton(
-                                avatarUri = avatarUri,
-                                onAvatarPicked = shellViewModel::setAvatarUri,
-                            )
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                    )
+                    if (currentRoute?.startsWith("chat") != true) {
+                        TopAppBar(
+                            title = { Text(if (currentRoute == "crew") "Crew" else currentRoute?.replaceFirstChar { it.uppercase() } ?: "Crew", style = MaterialTheme.typography.titleLarge) },
+                            actions = {
+                                IconButton(onClick = { navController.navigate("files") }) {
+                                    Icon(Icons.Filled.Folder, contentDescription = "Files")
+                                }
+                                IconButton(onClick = { navController.navigate("settings") }) {
+                                    Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+                        )
+                    }
                 },
                 bottomBar = {
                     if (showBottomBar) {
-                        NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ) {
+                        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                             BottomNavDestination.entries.forEach { dest ->
-                                val selected = currentRoute == dest.route
                                 NavigationBarItem(
-                                    selected = selected,
+                                    selected = currentRoute == dest.route,
                                     onClick = {
                                         if (currentRoute != dest.route) {
                                             navController.navigate(dest.route) {
-                                                popUpTo(BottomNavDestination.Chat.route) { saveState = true }
+                                                popUpTo(BottomNavDestination.Crew.route) { saveState = true }
                                                 launchSingleTop = true
                                                 restoreState = true
                                             }
                                         }
                                     },
-                                    icon = { Icon(imageVector = dest.icon, contentDescription = dest.label) },
+                                    icon = { Icon(dest.icon, contentDescription = dest.label) },
                                     label = { Text(dest.label) },
                                 )
                             }
@@ -245,12 +195,16 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                     }
                 },
             ) { padding ->
-                NavHost(
-                    navController = navController,
-                    startDestination = BottomNavDestination.Chat.route,
-                    modifier = Modifier.padding(padding),
-                ) {
-                    composable(BottomNavDestination.Chat.route) { ChatScreen() }
+                NavHost(navController = navController, startDestination = BottomNavDestination.Crew.route, modifier = Modifier.padding(padding)) {
+                    composable(BottomNavDestination.Crew.route) {
+                        RosterScreen(onOpen = { id -> navController.navigate("chat/$id") })
+                    }
+                    composable(
+                        route = "chat/{assistantId}",
+                        arguments = listOf(navArgument("assistantId") { type = NavType.StringType }),
+                    ) {
+                        ChatScreen(onBack = { navController.popBackStack() })
+                    }
                     composable(BottomNavDestination.Todos.route) { TodoListScreen() }
                     composable(BottomNavDestination.Log.route) { QuickLogScreen() }
                     composable(BottomNavDestination.Memory.route) { MemoryScreen() }
@@ -259,46 +213,6 @@ fun MyPersonalAgentApp(shellViewModel: AppShellViewModel = hiltViewModel()) {
                     composable("settings") { SettingsScreen() }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AvatarActionButton(avatarUri: String?, onAvatarPicked: (String) -> Unit) {
-    val context = LocalContext.current
-    val pickMedia = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
-    ) { uri -> uri?.let { onAvatarPicked(it.toString()) } }
-
-    val bitmap = remember(avatarUri) {
-        avatarUri?.let { uriString ->
-            runCatching {
-                context.contentResolver.openInputStream(android.net.Uri.parse(uriString))?.use {
-                    android.graphics.BitmapFactory.decodeStream(it)?.asImageBitmap()
-                }
-            }.getOrNull()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .padding(end = 12.dp)
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .clickable {
-                pickMedia.launch(
-                    androidx.activity.result.PickVisualMediaRequest(
-                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
-                    ),
-                )
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (bitmap != null) {
-            Image(painter = BitmapPainter(bitmap), contentDescription = "Avatar")
-        } else {
-            Text("You", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
