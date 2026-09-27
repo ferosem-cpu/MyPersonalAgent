@@ -27,6 +27,8 @@ import javax.inject.Named
 import javax.inject.Singleton
 
 private const val MAX_TOOL_ROUNDS = 6
+private const val DEFAULT_GATEWAY_URL = "https://freellmapi-ferose.duckdns.org/v1"
+private const val DEFAULT_GATEWAY_MODEL = "gpt-4o-mini"
 
 private const val SYSTEM_PROMPT = """
 You are the on-device assistant for MyPersonalAgent, a personal productivity app. You can
@@ -43,7 +45,7 @@ data class ProviderConfig(
     val apiKey: String,
     val model: String,
     val endpointUrl: String,
-    val type: String, // "openai" or "anthropic"
+    val type: String,
 )
 
 data class ChatReply(
@@ -63,18 +65,15 @@ class ChatRepository @Inject constructor(
     private val fileInbox: FileInboxRepository,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
-
-    /** In-memory only - conversation resets on process death. */
     private val history = mutableListOf<JsonObject>()
 
     suspend fun send(message: String): ChatReply {
         val configuredProviders = getConfiguredProviders()
         if (configuredProviders.isEmpty()) {
             return ChatReply(
-                "No API keys saved yet. Open Settings (gear icon), paste at least one key, tap Save all keys, then try again.",
+                "No gateway saved yet. Open Settings, paste your FreeLLM endpoint and API key, tap Save gateway, then try again.",
             )
         }
-
         val snapshot = history.toList()
         var lastError: Exception? = null
         for (provider in configuredProviders) {
@@ -92,117 +91,38 @@ class ChatRepository @Inject constructor(
                 lastError = e
             }
         }
-
         val detail = lastError?.message?.take(400) ?: "Unknown error"
-        return ChatReply("All configured providers failed. Last error: $detail")
+        return ChatReply("Gateway call failed. Last error: $detail")
+    }
+
+    private fun completionsUrl(baseUrl: String): String {
+        val trimmed = baseUrl.trim().trimEnd('/')
+        return if (trimmed.endsWith("/chat/completions")) trimmed else "$trimmed/chat/completions"
     }
 
     private suspend fun getConfiguredProviders(): List<ProviderConfig> {
-        val selected = settings.llmProvider.first()?.trim()?.lowercase() ?: "auto"
-
-        val nvidiaKey = settings.nvidiaApiKey.first()?.trim()
-        val nvidiaModel = settings.nvidiaModel.first()?.trim()?.ifBlank { null } ?: "nvidia/llama-3.3-nemotron-super-49b-v1.5"
-
-        val anthropicKey = settings.anthropicApiKey.first()?.trim()
-        val anthropicModel = settings.anthropicModel.first()?.trim()?.ifBlank { null } ?: "claude-sonnet-5"
-
-        val openaiKey = settings.openaiApiKey.first()?.trim()
-        val openaiModel = settings.openaiModel.first()?.trim()?.ifBlank { null } ?: "gpt-4o"
-
-        val googleKey = settings.googleApiKey.first()?.trim()
-        val googleModel = settings.googleModel.first()?.trim()?.ifBlank { null } ?: "gemini-2.0-flash"
-
-        val openrouterKey = settings.openrouterApiKey.first()?.trim()
-        val openrouterModel = settings.openrouterModel.first()?.trim()?.ifBlank { null } ?: "anthropic/claude-sonnet-5"
-
-        val grokKey = settings.grokApiKey.first()?.trim()
-        val grokModel = settings.grokModel.first()?.trim()?.ifBlank { null } ?: "grok-3"
-
-        val list = mutableListOf<ProviderConfig>()
-
-        if (!nvidiaKey.isNullOrBlank()) {
-            list.add(ProviderConfig("nvidia", nvidiaKey, nvidiaModel, "https://integrate.api.nvidia.com/v1/chat/completions", "openai"))
-        }
-        if (!anthropicKey.isNullOrBlank()) {
-            list.add(ProviderConfig("anthropic", anthropicKey, anthropicModel, "https://api.anthropic.com/v1/messages", "anthropic"))
-        }
-        if (!openaiKey.isNullOrBlank()) {
-            list.add(ProviderConfig("openai", openaiKey, openaiModel, "https://api.openai.com/v1/chat/completions", "openai"))
-        }
-        if (!googleKey.isNullOrBlank()) {
-            list.add(ProviderConfig("google", googleKey, googleModel, "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "openai"))
-        }
-        if (!openrouterKey.isNullOrBlank()) {
-            list.add(ProviderConfig("openrouter", openrouterKey, openrouterModel, "https://openrouter.ai/api/v1/chat/completions", "openai"))
-        }
-        if (!grokKey.isNullOrBlank()) {
-            list.add(ProviderConfig("grok", grokKey, grokModel, "https://api.x.ai/v1/chat/completions", "openai"))
-        }
-
-        if (selected != "auto") {
-            val preferred = list.filter { it.name == selected }
-            val rest = list.filter { it.name != selected }
-            return preferred + rest
-        }
-
-        return list
+        val key = settings.customApiKey.first()?.trim().orEmpty()
+        if (key.isBlank()) return emptyList()
+        val base = settings.customBaseUrl.first()?.trim()?.trimEnd('/')?.ifBlank { null } ?: DEFAULT_GATEWAY_URL
+        val model = settings.customModel.first()?.trim()?.ifBlank { null } ?: DEFAULT_GATEWAY_MODEL
+        return listOf(
+            ProviderConfig(
+                name = "gateway",
+                apiKey = key,
+                model = model,
+                endpointUrl = completionsUrl(base),
+                type = "openai",
+            ),
+        )
     }
 
     private suspend fun executeTurn(provider: ProviderConfig, userMessage: String): String {
-        return if (provider.type == "anthropic") {
-            executeTurnAnthropic(provider, userMessage)
-        } else {
-            executeTurnOpenAI(provider, userMessage)
-        }
-    }
-
-    private suspend fun executeTurnAnthropic(provider: ProviderConfig, userMessage: String): String {
-        history.add(buildJsonObject { put("role", "user"); put("content", userMessage) })
-
-        repeat(MAX_TOOL_ROUNDS) {
-            val response = callAnthropic(provider.apiKey, provider.model)
-            val contentBlocks = response["content"]?.jsonArray ?: error("Invalid Anthropic response: missing content")
-            val stopReason = response["stop_reason"]?.jsonPrimitive?.contentOrNull
-
-            history.add(buildJsonObject { put("role", "assistant"); put("content", contentBlocks) })
-
-            if (stopReason != "tool_use") {
-                val text = contentBlocks
-                    .mapNotNull { it as? JsonObject }
-                    .firstOrNull { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
-                    ?.get("text")?.jsonPrimitive?.contentOrNull
-                    ?.trim()
-                if (text.isNullOrBlank()) error("${provider.name} returned no text")
-                return text
-            }
-
-            val toolResults = buildJsonArray {
-                contentBlocks.mapNotNull { it as? JsonObject }
-                    .filter { it["type"]?.jsonPrimitive?.contentOrNull == "tool_use" }
-                    .forEach { block ->
-                        val id = block["id"]!!.jsonPrimitive.content
-                        val name = block["name"]!!.jsonPrimitive.content
-                        val input = block["input"]?.jsonObject ?: JsonObject(emptyMap())
-                        val resultText = runCatching { executeTool(name, input) }
-                            .getOrElse { "Error running $name: ${it.message}" }
-                        add(
-                            buildJsonObject {
-                                put("type", "tool_result")
-                                put("tool_use_id", id)
-                                put("content", resultText)
-                            },
-                        )
-                    }
-            }
-            history.add(buildJsonObject { put("role", "user"); put("content", toolResults) })
-        }
-        error("Reached maximum tool execution rounds.")
+        return executeTurnOpenAI(provider, userMessage)
     }
 
     private suspend fun executeTurnOpenAI(provider: ProviderConfig, userMessage: String): String {
         val messages = mutableListOf<JsonObject>()
         messages.add(buildJsonObject { put("role", "system"); put("content", SYSTEM_PROMPT.trim()) })
-
         history.forEach { item ->
             val role = item["role"]?.jsonPrimitive?.contentOrNull ?: "user"
             val content = item["content"]
@@ -232,9 +152,7 @@ class ChatRepository @Inject constructor(
                 ?: error("Invalid ${provider.name} response (no choices)")
             val messageObj = choice["message"]?.jsonObject ?: error("Invalid ${provider.name} choice message")
             val finishReason = choice["finish_reason"]?.jsonPrimitive?.contentOrNull
-
             messages.add(messageObj)
-
             val textReply = messageObj["content"]?.let { el ->
                 when (el) {
                     is JsonPrimitive -> el.contentOrNull
@@ -245,14 +163,12 @@ class ChatRepository @Inject constructor(
                 }
             }
             val toolCalls = messageObj["tool_calls"]?.jsonArray
-
             if (toolCalls.isNullOrEmpty() || finishReason != "tool_calls") {
                 val finalReply = textReply?.trim().orEmpty()
                 if (finalReply.isBlank()) error("${provider.name} returned an empty reply")
                 history.add(buildJsonObject { put("role", "assistant"); put("content", finalReply) })
                 return finalReply
             }
-
             toolCalls.mapNotNull { it as? JsonObject }.forEach { call ->
                 val callId = call["id"]?.jsonPrimitive?.content ?: ""
                 val funcObj = call["function"]?.jsonObject ?: JsonObject(emptyMap())
@@ -260,10 +176,8 @@ class ChatRepository @Inject constructor(
                 val argsRaw = funcObj["arguments"]?.jsonPrimitive?.content ?: "{}"
                 val argsJson = runCatching { json.parseToJsonElement(argsRaw).jsonObject }
                     .getOrDefault(JsonObject(emptyMap()))
-
                 val resultText = runCatching { executeTool(name, argsJson) }
                     .getOrElse { "Error running $name: ${it.message}" }
-
                 messages.add(
                     buildJsonObject {
                         put("role", "tool")
@@ -276,9 +190,7 @@ class ChatRepository @Inject constructor(
         error("Reached maximum tool execution rounds.")
     }
 
-    fun clearHistory() {
-        history.clear()
-    }
+    fun clearHistory() { history.clear() }
 
     private suspend fun executeTool(name: String, input: JsonObject): String = when (name) {
         "add_todo" -> {
@@ -298,12 +210,8 @@ class ChatRepository @Inject constructor(
         "list_todos" -> {
             val status = input["status"]?.jsonPrimitive?.contentOrNull ?: "open"
             val todos = todoRepository.todos.first().filter { status == "all" || it.status == status }
-            if (todos.isEmpty()) {
-                "No todos."
-            } else {
-                todos.joinToString("\n") { t ->
-                    "- [id=${t.id}] ${t.title}" + (t.due?.let { " (due $it)" } ?: "")
-                }
+            if (todos.isEmpty()) "No todos." else todos.joinToString("\n") { t ->
+                "- [id=${t.id}] ${t.title}" + (t.due?.let { " (due $it)" } ?: "")
             }
         }
         "log_work" -> {
@@ -370,51 +278,18 @@ class ChatRepository @Inject constructor(
         else -> "Unknown tool: $name"
     }
 
-    private suspend fun callAnthropic(apiKey: String, model: String): JsonObject {
-        val body = buildJsonObject {
-            put("model", model)
-            put("max_tokens", 1024)
-            put("system", SYSTEM_PROMPT.trim())
-            put("messages", JsonArray(history.toList()))
-            put("tools", ANTHROPIC_TOOLS)
-        }
-        val request = Request.Builder()
-            .url("https://api.anthropic.com/v1/messages")
-            .addHeader("x-api-key", apiKey)
-            .addHeader("anthropic-version", "2023-06-01")
-            .addHeader("content-type", "application/json")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return withContext(Dispatchers.IO) {
-            httpClient.newCall(request).execute().use { resp ->
-                val bodyStr = resp.body?.string() ?: error("Empty response from Anthropic API")
-                if (!resp.isSuccessful) error("Anthropic API error ${resp.code}: $bodyStr")
-                json.parseToJsonElement(bodyStr).jsonObject
-            }
-        }
-    }
-
     private suspend fun callOpenAI(provider: ProviderConfig, messages: List<JsonObject>): JsonObject {
         val body = buildJsonObject {
             put("model", provider.model)
             put("messages", JsonArray(messages))
             put("tools", OPENAI_TOOLS)
         }
-        val requestBuilder = Request.Builder()
+        val request = Request.Builder()
             .url(provider.endpointUrl)
             .addHeader("Authorization", "Bearer ${provider.apiKey}")
             .addHeader("content-type", "application/json")
-
-        if (provider.name == "openrouter") {
-            requestBuilder.addHeader("HTTP-Referer", "https://github.com/ferosem-cpu/MyPersonalAgent")
-            requestBuilder.addHeader("X-Title", "MyPersonalAgent")
-        }
-
-        val request = requestBuilder
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-
         return withContext(Dispatchers.IO) {
             httpClient.newCall(request).execute().use { resp ->
                 val bodyStr = resp.body?.string() ?: error("Empty response from ${provider.name} API")
@@ -425,48 +300,6 @@ class ChatRepository @Inject constructor(
     }
 
     companion object {
-        private val ANTHROPIC_TOOLS = buildJsonArray {
-            add(anthropicTool("add_todo", "Create a new todo.") {
-                stringProp("title", "The todo's title.", required = true)
-                stringProp("project", "Optional project/category name.")
-                stringProp("due", "Optional ISO-8601 due date/time.")
-            })
-            add(anthropicTool("complete_todo", "Mark a todo complete by its id. Call list_todos first if you don't have the id.") {
-                stringProp("id", "The todo's id.", required = true)
-            })
-            add(anthropicTool("list_todos", "List todos, optionally filtered by status.") {
-                stringProp("status", "One of: open, done, snoozed, all. Defaults to open.")
-            })
-            add(anthropicTool("log_work", "Log a completed work entry.") {
-                stringProp("title", "What was done.", required = true)
-                stringProp("desc", "Optional longer description.")
-                stringProp("project", "Optional project/category name.")
-                numberProp("minutes", "Minutes spent.")
-            })
-            add(anthropicTool("remember", "Save a note to memory.") {
-                stringProp("text", "The note text.", required = true)
-            })
-            add(anthropicTool("recall", "Search saved notes.") {
-                stringProp("query", "Search text.")
-            })
-            add(anthropicTool("snooze_todo", "Snooze a todo until a datetime. Call list_todos first for the id.") {
-                stringProp("id", "The todo's id.", required = true)
-                stringProp("until", "ISO-8601 datetime to snooze until.", required = true)
-            })
-            add(anthropicTool("add_contact", "Save a contact.") {
-                stringProp("name", "Full name.", required = true)
-                stringProp("phone", "Phone number.")
-                stringProp("email", "Email address.")
-            })
-            add(anthropicTool("list_contacts", "List or search saved contacts.") {
-                stringProp("query", "Optional name/phone/email filter.")
-            })
-            add(anthropicTool("list_files", "List files the user dropped into the app.") {})
-            add(anthropicTool("open_app", "Open an installed app by alias or package name.") {
-                stringProp("name", "Alias or package name.", required = true)
-            })
-        }
-
         private val OPENAI_TOOLS = buildJsonArray {
             add(openAiTool("add_todo", "Create a new todo.") {
                 stringProp("title", "The todo's title.", required = true)
@@ -503,26 +336,11 @@ class ChatRepository @Inject constructor(
             add(openAiTool("list_contacts", "List or search saved contacts.") {
                 stringProp("query", "Optional name/phone/email filter.")
             })
-            add(openAiTool("list_files", "List files the user dropped into the app.") {})
+            add(openAiTool("list_files", "List files the user dropped into the app.") {}
+            )
             add(openAiTool("open_app", "Open an installed app by alias or package name.") {
                 stringProp("name", "Alias or package name.", required = true)
             })
-        }
-
-        private fun anthropicTool(name: String, description: String, buildProps: PropsBuilder.() -> Unit): JsonObject {
-            val builder = PropsBuilder().apply(buildProps)
-            return buildJsonObject {
-                put("name", name)
-                put("description", description)
-                put(
-                    "input_schema",
-                    buildJsonObject {
-                        put("type", "object")
-                        put("properties", buildJsonObject { builder.properties.forEach { (k, v) -> put(k, v) } })
-                        put("required", buildJsonArray { builder.required.forEach { add(JsonPrimitive(it)) } })
-                    },
-                )
-            }
         }
 
         private fun openAiTool(name: String, description: String, buildProps: PropsBuilder.() -> Unit): JsonObject {
@@ -551,12 +369,10 @@ class ChatRepository @Inject constructor(
     private class PropsBuilder {
         val properties = mutableMapOf<String, JsonObject>()
         val required = mutableListOf<String>()
-
         fun stringProp(name: String, description: String, required: Boolean = false) {
             properties[name] = buildJsonObject { put("type", "string"); put("description", description) }
             if (required) this.required.add(name)
         }
-
         fun numberProp(name: String, description: String, required: Boolean = false) {
             properties[name] = buildJsonObject { put("type", "number"); put("description", description) }
             if (required) this.required.add(name)
