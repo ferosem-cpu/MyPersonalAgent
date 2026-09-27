@@ -32,15 +32,15 @@ jobs:
       - name: Publish downloadable release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.4.0-android
-          name: Crew v0.4.0 — Grokbot-style assistants
+          tag_name: v0.4.1-android
+          name: Crew v0.4.1 — FreeLLM / Reeller slot
           body: |
-            Debug APK for Crew (v0.4.0): roster of assistants, War Room group chat, one API key.
+            Debug APK for Crew (v0.4.1): same roster + a FreeLLM provider pointed at your DuckDNS router.
 
             After install:
-            1. Open Crew. You get Chief of Staff, Researcher, Writer, Ops, Memory, and War Room.
-            2. Gear → paste one API key (xAI / OpenAI / OpenRouter / etc.) → Save all keys
-            3. Tap + to add more assistants
-            4. Open War Room to have several teammates answer the same job
+            1. Open Crew. Gear → FreeLLM / Reeller API key.
+            2. Base URL is prefilled as https://freellmapi-ferose.duckdns.org/v1
+            3. Paste your Reeller/FreeLLM key, set a model id from the FreeLLM Models tab (default gpt-4o-mini), tap Save all keys.
+            4. Chip "FreeLLM" as preferred provider, or leave Auto (FreeLLM is tried first when a key is saved).
           files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
