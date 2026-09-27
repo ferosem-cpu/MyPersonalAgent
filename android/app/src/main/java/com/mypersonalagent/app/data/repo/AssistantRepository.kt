@@ -60,12 +60,13 @@ class AssistantRepository @Inject constructor(
         }
         assistantDao.upsertAll(seeds)
         seeds.forEach { bot ->
+            val hello = "I am ${bot.name}. ${bot.title}. Message me like a teammate."
             messageDao.insert(
                 ChatMessageEntity(
                     id = UUID.randomUUID().toString(),
                     threadId = bot.id,
                     role = "assistant",
-                    content = "I'm ${bot.name}. ${bot.title}. Message me like a teammate.",
+                    content = hello,
                     speakerId = bot.id,
                     speakerName = bot.name,
                     created = now,
@@ -131,12 +132,14 @@ class AssistantRepository @Inject constructor(
             lastActive = now,
         )
         assistantDao.upsert(entity)
+        val fallback = if (entity.title.isBlank()) "Ready when you are." else entity.title
+        val hello = "I am ${entity.name}. $fallback"
         messageDao.insert(
             ChatMessageEntity(
                 id = UUID.randomUUID().toString(),
                 threadId = entity.id,
                 role = "assistant",
-                content = "I'm ${entity.name}. ${entity.title.ifBlank { \"Ready when you are.\" }}",
+                content = hello,
                 speakerId = entity.id,
                 speakerName = entity.name,
                 created = now,
