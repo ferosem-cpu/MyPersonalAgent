@@ -1,11 +1,8 @@
 package com.mypersonalagent.app.ui.chat
 
-import android.Manifest
 import android.app.Activity
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.speech.RecognizerIntent
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -20,33 +17,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicNone
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -56,327 +44,96 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.mypersonalagent.app.data.local.ChatMessageEntity
+import com.mypersonalagent.app.ui.roster.BotAvatar
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel = hiltViewModel()) {
+fun ChatScreen(
+    onBack: () -> Unit,
+    viewModel: ChatViewModel = hiltViewModel(),
+) {
+    val bot by viewModel.bot.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val sending by viewModel.sending.collectAsState()
     val error by viewModel.error.collectAsState()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val context = LocalContext.current
-    var isListening by remember { mutableStateOf(false) }
 
     val speechLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        isListening = false
         if (result.resultCode == Activity.RESULT_OK) {
-            val text = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-            if (!text.isNullOrBlank()) {
-                input = text
-                Toast.makeText(context, "Voice recognized", Toast.LENGTH_SHORT).show()
-            }
+            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            spoken?.firstOrNull()?.let { input = it }
         }
-    }
-
-    fun launchSpeechRecognizer() {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your message")
-        }
-        runCatching {
-            isListening = true
-            speechLauncher.launch(intent)
-        }.onFailure {
-            isListening = false
-            Toast.makeText(context, "Voice recognizer unavailable on this device", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    val micPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted) launchSpeechRecognizer()
-        else Toast.makeText(context, "Microphone permission required for voice chat", Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
-        error?.let { message ->
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        message,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(onClick = { viewModel.clearError() }) { Text("Dismiss") }
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = {
+                Column {
+                    Text(bot?.name ?: "Assistant")
+                    Text(bot?.title ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            }
-        }
-
-        if (messages.isEmpty()) {
-            EmptyChatSuggestions(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                onPromptSelected = { prompt -> input = prompt },
-            )
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                items(messages) { message -> ChatBubble(message) }
-                if (sending) {
-                    item { AssistantThinkingIndicator() }
+            },
+            navigationIcon = {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            },
+            actions = {
+                bot?.let { Box(Modifier.padding(end = 8.dp)) { BotAvatar(it, 32) } }
+                IconButton(onClick = { viewModel.deleteAssistant(onBack) }) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete assistant")
                 }
-            }
-        }
-
-        Surface(
-            tonalElevation = 3.dp,
-            shadowElevation = 4.dp,
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.fillMaxWidth(),
+            },
+        )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                if (isListening) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Listening…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    }
+            items(messages.filter { it.kind == "text" }, key = { it.id }) { MessageBubble(it) }
+            if (sending) item { Text(if (bot?.isGroup == true) "Crew is working…" else "Thinking…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (error != null) item { Text(error ?: "", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+        Row(modifier = Modifier.fillMaxWidth().imePadding().padding(12.dp), verticalAlignment = Alignment.Bottom) {
+            OutlinedTextField(value = input, onValueChange = { input = it }, modifier = Modifier.weight(1f), placeholder = { Text("Message ${bot?.name ?: ""}") })
+            IconButton(onClick = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("Message your agent…") },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                            focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                                        PackageManager.PERMISSION_GRANTED
-                                    if (granted) launchSpeechRecognizer()
-                                    else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                },
-                            ) {
-                                Icon(
-                                    imageVector = if (isListening) Icons.Filled.Mic else Icons.Filled.MicNone,
-                                    contentDescription = "Voice input",
-                                    tint = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        maxLines = 4,
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    FilledIconButton(
-                        onClick = {
-                            if (input.isNotBlank() && !sending) {
-                                viewModel.send(input)
-                                input = ""
-                            }
-                        },
-                        enabled = !sending && input.isNotBlank(),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                        )
-                    }
-                }
+                runCatching { speechLauncher.launch(intent) }
+            }) { Icon(Icons.Filled.Mic, contentDescription = "Voice") }
+            FilledIconButton(onClick = { val text = input; input = ""; viewModel.send(text) }, enabled = input.isNotBlank() && !sending) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
         }
     }
 }
 
 @Composable
-private fun EmptyChatSuggestions(onPromptSelected: (String) -> Unit, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            "Your on-device agent",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            "Keys live in Settings (gear). Auto mode tries the next provider if one fails.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        Text("Try asking", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.secondary)
-        Spacer(modifier = Modifier.height(12.dp))
-
-        val promptSuggestions = listOf(
-            "Add a todo to call the dentist tomorrow at 4pm",
-            "Log 30 minutes of client work",
-            "Remember that my passport is in the desk drawer",
-            "What's on my open to-do list?",
-        )
-
-        promptSuggestions.forEach { prompt ->
-            AssistChip(
-                onClick = { onPromptSelected(prompt) },
-                label = { Text(prompt) },
-                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChatBubble(message: ChatMessage) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start,
-        verticalAlignment = Alignment.Top,
-    ) {
-        if (!message.fromUser) {
-            AvatarBadge(isUser = false)
-            Spacer(modifier = Modifier.width(6.dp))
-        }
-
-        Column(horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start) {
-            Card(
-                modifier = Modifier.widthIn(max = 300.dp),
-                shape = RoundedCornerShape(
-                    topStart = 18.dp,
-                    topEnd = 18.dp,
-                    bottomStart = if (message.fromUser) 18.dp else 4.dp,
-                    bottomEnd = if (message.fromUser) 4.dp else 18.dp,
-                ),
-                colors = if (message.fromUser) {
-                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                } else {
-                    CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                },
+private fun MessageBubble(msg: ChatMessageEntity) {
+    val mine = msg.role == "user"
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+            if (!mine && !msg.speakerName.isNullOrBlank()) {
+                Text(msg.speakerName ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(2.dp))
+            }
+            Box(
+                modifier = Modifier.widthIn(max = 320.dp).background(
+                    if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                    RoundedCornerShape(16.dp),
+                ).padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                Text(
-                    text = message.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (message.fromUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                )
-            }
-            if (!message.fromUser && !message.provider.isNullOrBlank()) {
-                Text(
-                    message.provider.replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 4.dp, top = 2.dp),
-                )
-            }
-        }
-
-        if (message.fromUser) {
-            Spacer(modifier = Modifier.width(6.dp))
-            AvatarBadge(isUser = true)
-        }
-    }
-}
-
-@Composable
-private fun AvatarBadge(isUser: Boolean) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(if (isUser) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.tertiaryContainer),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(if (isUser) "You" else "AI", style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
-private fun AssistantThinkingIndicator() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        AvatarBadge(isUser = false)
-        Spacer(modifier = Modifier.width(8.dp))
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Thinking…", style = MaterialTheme.typography.bodySmall)
+                Text(msg.content, color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
             }
         }
     }
