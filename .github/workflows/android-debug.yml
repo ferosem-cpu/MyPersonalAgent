@@ -32,15 +32,17 @@ jobs:
       - name: Publish downloadable release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.4.1-android
-          name: Crew v0.4.1 — FreeLLM / Reeller slot
+          tag_name: v0.5.0-android
+          name: Crew v0.5.0 — single LLM gateway
           body: |
-            Debug APK for Crew (v0.4.1): same roster + a FreeLLM provider pointed at your DuckDNS router.
+            Debug APK for Crew (v0.5.0). One provider slot only.
 
-            After install:
-            1. Open Crew. Gear → FreeLLM / Reeller API key.
-            2. Base URL is prefilled as https://freellmapi-ferose.duckdns.org/v1
-            3. Paste your Reeller/FreeLLM key, set a model id from the FreeLLM Models tab (default gpt-4o-mini), tap Save all keys.
-            4. Chip "FreeLLM" as preferred provider, or leave Auto (FreeLLM is tried first when a key is saved).
+            Settings → LLM gateway:
+            1. Endpoint (prefilled) https://freellmapi-ferose.duckdns.org/v1
+            2. Paste your FreeLLM / Reeller API key
+            3. Model id your gateway already exposes (default gpt-4o-mini)
+            4. Tap Save gateway
+
+            Add Grok / Claude / NVIDIA inside FreeLLM. Changing the endpoint or key in Settings does not require a new APK.
           files: android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
