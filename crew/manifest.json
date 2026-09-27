@@ -1,0 +1,9 @@
+{
+  "name": "Crew",
+  "short_name": "Crew",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#07080a",
+  "theme_color": "#07080a",
+  "description": "AI teammates powered by one API key you install."
+}
